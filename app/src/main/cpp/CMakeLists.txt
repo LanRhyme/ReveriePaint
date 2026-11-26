@@ -354,15 +354,8 @@ endforeach()
 # JNI 只依赖核心库导出的符号 (core() / ReverieCore / C ABI)
 target_link_libraries(reverie_jni reverie_core)
 
-# 茶绘 P2P 静态依赖 (libdatachannel + libjuice + usrsctp + mbedtls 静态编入 reverie_core)
-target_link_libraries(reverie_core
-    ${DEPS_DIR}/lib/libdatachannel.a
-    ${DEPS_DIR}/lib/libjuice.a
-    ${DEPS_DIR}/lib/libusrsctp.a
-    ${DEPS_DIR}/lib/libmbedtls.a
-    ${DEPS_DIR}/lib/libmbedx509.a
-    ${DEPS_DIR}/lib/libmbedcrypto.a
-)
+# 茶绘 P2P 动态加载 libeasytier_ffi.so (按需 dlopen, 需要 dl 库)
+target_link_libraries(reverie_core dl)
 
 add_custom_command(TARGET reverie_jni POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

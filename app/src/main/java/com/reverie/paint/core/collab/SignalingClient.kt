@@ -35,6 +35,7 @@ data class CreatedRoomResponse(
     val hostToken: String,
     val iceServersJson: String,
     val expiresInMs: Long,
+    val easyTierJson: String = "{}",
 )
 
 interface SignalingEventListener {
@@ -47,6 +48,7 @@ interface SignalingEventListener {
         peers: List<CollabPeer>,
         canvasWidth: Int,
         canvasHeight: Int,
+        easyTierJson: String = "{}",
     )
 
     fun onAdmitted(
@@ -57,6 +59,7 @@ interface SignalingEventListener {
         peers: List<CollabPeer>,
         canvasWidth: Int,
         canvasHeight: Int,
+        easyTierJson: String = "{}",
     )
 
     fun onJoinRequest(request: CollabPendingRequest)
@@ -66,7 +69,7 @@ interface SignalingEventListener {
     fun onPeerOnline(peerId: String)
     fun onSignal(fromPeerId: String, payloadJson: String)
     fun onSignalUndelivered(targetPeerId: String)
-    fun onHostChanged(newHostPeerId: String, hostToken: String?)
+    fun onHostChanged(newHostPeerId: String, hostToken: String?, hostVirtualIp: String = "")
     fun onHostOffline(hostPeerId: String)
     fun onHostOnline(hostPeerId: String)
     fun onRejected()
@@ -139,6 +142,7 @@ class SignalingClient(
                     hostToken = json.getString("hostToken"),
                     iceServersJson = json.optJSONArray("iceServers")?.toString() ?: "[]",
                     expiresInMs = json.optLong("expiresInMs", 86400_000L),
+                    easyTierJson = json.optJSONObject("easyTier")?.toString() ?: "{}",
                 )
             }
         }
@@ -393,6 +397,7 @@ class SignalingClient(
                     peers = parsePeers(msg.optJSONArray("peers")),
                     canvasWidth = meta?.optInt("width", 0) ?: 0,
                     canvasHeight = meta?.optInt("height", 0) ?: 0,
+                    easyTierJson = msg.optJSONObject("easyTier")?.toString() ?: "{}",
                 )
             }
             "admitted" -> {
@@ -405,6 +410,7 @@ class SignalingClient(
                     peers = parsePeers(msg.optJSONArray("peers")),
                     canvasWidth = meta?.optInt("width", 0) ?: 0,
                     canvasHeight = meta?.optInt("height", 0) ?: 0,
+                    easyTierJson = msg.optJSONObject("easyTier")?.toString() ?: "{}",
                 )
             }
             "join_request" -> {
@@ -436,10 +442,12 @@ class SignalingClient(
             "host_promoted" -> listener.onHostChanged(
                 newHostPeerId = msg.optString("hostPeerId"),
                 hostToken = msg.optString("hostToken").takeIf { it.isNotEmpty() },
+                hostVirtualIp = msg.optString("hostVirtualIp"),
             )
             "host_changed" -> listener.onHostChanged(
                 newHostPeerId = msg.optString("hostPeerId"),
                 hostToken = null,
+                hostVirtualIp = msg.optString("hostVirtualIp"),
             )
             "host_offline" -> listener.onHostOffline(msg.optString("hostPeerId"))
             "host_online" -> listener.onHostOnline(msg.optString("hostPeerId"))
@@ -467,6 +475,7 @@ class SignalingClient(
             name = p.optString("name", "Artist"),
             role = role,
             joinedAt = p.optLong("joinedAt", 0L),
+            virtualIp = p.optString("virtualIp"),
         )
     }
 

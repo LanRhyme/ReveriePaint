@@ -8,8 +8,13 @@ import {
   MAX_SIGNAL_BYTES,
   PEER_ID_RE,
   buildIceServers,
+  deriveMeshPort,
+  deriveMeshSubnetByte,
   jsonResponse,
   parsePositiveInt,
+  parseRelayPeers,
+  parseStunServers,
+  parseStunV6Servers,
   randomTokenHex,
   sanitizeName,
   sanitizeTitle,
@@ -80,6 +85,10 @@ export class CollabRoom extends DurableObject {
     const hostToken = randomTokenHex(24);
     const hostName = sanitizeName(body.hostName, 'Host');
     const canvasMeta = body.canvasMeta && typeof body.canvasMeta === 'object' ? body.canvasMeta : null;
+    const meshSubnetByte = deriveMeshSubnetByte(roomCode);
+    const meshPort = deriveMeshPort(roomCode);
+    const meshSecret = randomTokenHex(12);
+    const hostVirtualIp = `10.144.${meshSubnetByte}.10`;
 
     const meta = {
       roomCode,
@@ -92,8 +101,18 @@ export class CollabRoom extends DurableObject {
       isPublic,
       title: isPublic ? title : '',
       canvasMeta,
+      meshNetwork: `rvp-${roomCode}`,
+      meshSecret,
+      meshSubnetByte,
+      meshPort,
+      nextIpOctet: 11,
       admittedPeers: {
-        [hostPeerId]: { name: hostName, joinedAt: now, disconnectedAt: 0 },
+        [hostPeerId]: {
+          name: hostName,
+          joinedAt: now,
+          disconnectedAt: 0,
+          virtualIp: hostVirtualIp,
+        },
       },
       kickedPeers: [],
       createdAt: now,
@@ -114,6 +133,7 @@ export class CollabRoom extends DurableObject {
     }
 
     const iceServers = await buildIceServers(this.env, hostPeerId);
+    const easyTier = this.buildEasyTierPayload(meta, hostPeerId);
     return jsonResponse({
       ok: true,
       roomCode,
@@ -126,6 +146,7 @@ export class CollabRoom extends DurableObject {
       title: meta.title,
       expiresInMs: roomTtlMs,
       iceServers,
+      easyTier,
     });
   }
 
@@ -242,8 +263,15 @@ export class CollabRoom extends DurableObject {
     if (!meta.admittedPeers || typeof meta.admittedPeers !== 'object') {
       meta.admittedPeers = {};
     }
+    let peerVirtualIp = '';
     if (status === 'admitted') {
-      meta.admittedPeers[peerId] = { name, joinedAt, disconnectedAt: 0 };
+      peerVirtualIp = this.ensurePeerVirtualIp(meta, peerId);
+      meta.admittedPeers[peerId] = {
+        name,
+        joinedAt,
+        disconnectedAt: 0,
+        virtualIp: peerVirtualIp,
+      };
     }
     if (isHost) {
       meta.hostDisconnectedAt = 0;
@@ -256,7 +284,7 @@ export class CollabRoom extends DurableObject {
 
     const iceServers = await buildIceServers(this.env, peerId);
     if (status === 'admitted') {
-      const currentAdmitted = this.listAdmittedPeers();
+      const currentAdmitted = this.listAdmittedPeers(null, meta);
       this.sendJson(server, {
         type: 'welcome',
         roomCode: meta.roomCode,
@@ -264,13 +292,14 @@ export class CollabRoom extends DurableObject {
         hostPeerId: meta.hostPeerId,
         status: 'admitted',
         iceServers,
+        easyTier: this.buildEasyTierPayload(meta, peerId),
         peers: currentAdmitted,
         canvasMeta: meta.canvasMeta,
       });
 
       if (!isHost) {
         this.broadcastAdmitted(
-          { type: 'peer_joined', peer: { peerId, role: 'peer', name, joinedAt } },
+          { type: 'peer_joined', peer: { peerId, role: 'peer', name, joinedAt, virtualIp: peerVirtualIp } },
           peerId,
         );
       } else {
@@ -350,6 +379,17 @@ export class CollabRoom extends DurableObject {
           this.sendJson(ws, { type: 'error', code: 'invalid_signal_target' });
           return;
         }
+        if (to === '*') {
+          this.broadcastAdmitted(
+            {
+              type: 'signal',
+              from: sender.peerId,
+              payload: msg.payload,
+            },
+            sender.peerId,
+          );
+          break;
+        }
         const delivered = this.sendToAdmittedPeer(to, {
           type: 'signal',
           from: sender.peerId,
@@ -378,10 +418,12 @@ export class CollabRoom extends DurableObject {
           if (!meta.admittedPeers || typeof meta.admittedPeers !== 'object') {
             meta.admittedPeers = {};
           }
+          const targetVirtualIp = this.ensurePeerVirtualIp(meta, targetAtt.peerId);
           meta.admittedPeers[targetAtt.peerId] = {
             name: targetAtt.name,
             joinedAt: targetAtt.joinedAt,
             disconnectedAt: 0,
+            virtualIp: targetVirtualIp,
           };
           const iceServers = await buildIceServers(this.env, targetAtt.peerId);
           this.sendJson(targetWs, {
@@ -390,7 +432,8 @@ export class CollabRoom extends DurableObject {
             selfPeerId: targetAtt.peerId,
             hostPeerId: meta.hostPeerId,
             iceServers,
-            peers: this.listAdmittedPeers(),
+            easyTier: this.buildEasyTierPayload(meta, targetAtt.peerId),
+            peers: this.listAdmittedPeers(null, meta),
             canvasMeta: meta.canvasMeta,
           });
           this.broadcastAdmitted(
@@ -401,6 +444,7 @@ export class CollabRoom extends DurableObject {
                 role: 'peer',
                 name: targetAtt.name,
                 joinedAt: targetAtt.joinedAt,
+                virtualIp: targetVirtualIp,
               },
             },
             targetAtt.peerId,
@@ -619,6 +663,7 @@ export class CollabRoom extends DurableObject {
     meta.hostToken = newToken;
     meta.hostDisconnectedAt = 0;
     meta.lastActiveAt = Date.now();
+    const hostVirtualIp = this.ensurePeerVirtualIp(meta, meta.hostPeerId);
     await this.ctx.storage.put(STORAGE_ROOM_KEY, meta);
     if (meta.isPublic) {
       await this.syncDirectory(meta);
@@ -628,12 +673,14 @@ export class CollabRoom extends DurableObject {
       type: 'host_promoted',
       hostPeerId: meta.hostPeerId,
       hostToken: newToken,
+      hostVirtualIp,
     });
     this.broadcastAdmitted(
       {
         type: 'host_changed',
         hostPeerId: meta.hostPeerId,
         hostName: meta.hostName,
+        hostVirtualIp,
       },
       newAtt.peerId,
     );
@@ -704,17 +751,82 @@ export class CollabRoom extends DurableObject {
     } catch {}
   }
 
-  listAdmittedPeers(excludeWs = null) {
+  ensureMeshMetadata(meta) {
+    if (!meta.meshSubnetByte) {
+      meta.meshSubnetByte = deriveMeshSubnetByte(meta.roomCode || '');
+    }
+    if (!meta.meshPort) {
+      meta.meshPort = deriveMeshPort(meta.roomCode || '');
+    }
+    if (!meta.meshNetwork) {
+      meta.meshNetwork = `rvp-${meta.roomCode || '000000'}`;
+    }
+    if (!meta.meshSecret) {
+      meta.meshSecret = randomTokenHex(12);
+    }
+    if (!meta.nextIpOctet || meta.nextIpOctet < 10) {
+      meta.nextIpOctet = 10;
+    }
+  }
+
+  ensurePeerVirtualIp(meta, peerId) {
+    this.ensureMeshMetadata(meta);
+    if (!meta.admittedPeers || typeof meta.admittedPeers !== 'object') {
+      meta.admittedPeers = {};
+    }
+    const existing = meta.admittedPeers[peerId]?.virtualIp;
+    if (existing) return existing;
+
+    const used = new Set();
+    for (const info of Object.values(meta.admittedPeers)) {
+      if (info && info.virtualIp) used.add(info.virtualIp);
+    }
+    let octet = meta.nextIpOctet;
+    for (let i = 0; i < 240; i += 1) {
+      if (octet < 10 || octet > 249) octet = 10;
+      const candidate = `10.144.${meta.meshSubnetByte}.${octet}`;
+      octet += 1;
+      if (!used.has(candidate)) {
+        meta.nextIpOctet = octet > 249 ? 10 : octet;
+        if (!meta.admittedPeers[peerId]) {
+          meta.admittedPeers[peerId] = { name: peerId, joinedAt: Date.now(), disconnectedAt: 0 };
+        }
+        meta.admittedPeers[peerId].virtualIp = candidate;
+        return candidate;
+      }
+    }
+    return `10.144.${meta.meshSubnetByte}.250`;
+  }
+
+  buildEasyTierPayload(meta, selfPeerId) {
+    this.ensureMeshMetadata(meta);
+    const selfVirtualIp = this.ensurePeerVirtualIp(meta, selfPeerId);
+    const hostVirtualIp = this.ensurePeerVirtualIp(meta, meta.hostPeerId);
+    return {
+      networkName: meta.meshNetwork,
+      networkSecret: meta.meshSecret,
+      selfVirtualIp,
+      hostVirtualIp,
+      meshPort: meta.meshPort,
+      relayPeers: parseRelayPeers(this.env),
+      stunServers: parseStunServers(this.env),
+      stunServersV6: parseStunV6Servers(this.env),
+    };
+  }
+
+  listAdmittedPeers(excludeWs = null, meta = null) {
     const peers = [];
     for (const ws of this.ctx.getWebSockets()) {
       if (excludeWs && ws === excludeWs) continue;
       const att = ws.deserializeAttachment();
       if (att && !att.replaced && att.status === 'admitted') {
+        const virtualIp = meta ? this.ensurePeerVirtualIp(meta, att.peerId) : (att.virtualIp || '');
         peers.push({
           peerId: att.peerId,
           role: att.role,
           name: att.name,
           joinedAt: att.joinedAt,
+          virtualIp,
         });
       }
     }

@@ -4210,6 +4210,12 @@
     <string name="collab_host_badge">Host</string>
     <string name="collab_p2p_ready">Connected</string>
     <string name="collab_p2p_pending">Connecting</string>
+    <string name="collab_route_p2p">P2P Direct · %1$s</string>
+    <string name="collab_route_relay">Relayed · %1$s</string>
+    <string name="collab_nat_easy">Open P2P · %1$s</string>
+    <string name="collab_nat_medium">Punchable NAT · %1$s</string>
+    <string name="collab_nat_hard">Symmetric NAT · Auto Relay</string>
+    <string name="collab_nat_probing">Probing NAT &amp; mesh routes…</string>
     <string name="collab_layer_no_permission">Cannot draw on this layer</string>
     <string name="collab_layer_no_permission_owner">Layer belongs to %1$s, switch or add your own</string>
     <string name="collab_layer_owner_toast">Owned by %1$s</string>
@@ -4233,8 +4239,8 @@
     <string name="collab_host_migrated_msg">%1$s took over as host</string>
     <string name="collab_open_lobby">Collab</string>
     <string name="collab_lan_discover_tip">Enter the 6-character code from host to join the canvas</string>
-    <string name="collab_custom_turn_section">Network &amp; Custom TURN Relay</string>
-    <string name="collab_turn_url_hint">TURN URL (e.g. turn:host:3478, optional)</string>
+    <string name="collab_custom_turn_section">Network &amp; Custom EasyTier Relay</string>
+    <string name="collab_turn_url_hint">EasyTier Node URI (e.g. tcp://host:11010, optional)</string>
     <string name="collab_turn_user_hint">TURN Username (optional)</string>
     <string name="collab_turn_pass_hint">TURN Credential (optional)</string>
     <string name="collab_reconnect_now">Reconnect</string>

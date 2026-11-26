@@ -40,6 +40,50 @@ enum class LayerCollabPermission(val code: Int) {
     }
 }
 
+enum class CollabNatType {
+    UNKNOWN,
+    OPEN_INTERNET,
+    NO_PAT,
+    FULL_CONE,
+    RESTRICTED,
+    PORT_RESTRICTED,
+    SYMMETRIC,
+    SYM_UDP_FIREWALL,
+    SYMMETRIC_EASY_INC,
+    SYMMETRIC_EASY_DEC,
+}
+
+enum class CollabRouteMode {
+    CONNECTING,
+    P2P_DIRECT,
+    RELAYED,
+    LOCAL_HOST,
+}
+
+data class CollabPeerRouteDiag(
+    val peerId: String,
+    val routeMode: CollabRouteMode = CollabRouteMode.CONNECTING,
+    val tunnelProto: String = "",
+    val latencyMs: Int = -1,
+    val lossRate: Float = 0f,
+    val natType: CollabNatType = CollabNatType.UNKNOWN,
+    val rxBytes: Long = 0L,
+    val txBytes: Long = 0L,
+)
+
+data class CollabNetworkDiag(
+    val ready: Boolean = false,
+    val easytierRunning: Boolean = false,
+    val selfVirtualIp: String = "",
+    val hostVirtualIp: String = "",
+    val selfNatType: CollabNatType = CollabNatType.UNKNOWN,
+    val tcpNatType: CollabNatType = CollabNatType.UNKNOWN,
+    val publicIps: List<String> = emptyList(),
+    val natDifficultyLevel: Int = 0, // 0=探测中, 1=简单(直连/Cone), 2=中等(端口受限/规则对称), 3=困难(对称NAT/需中继)
+    val errorMsg: String? = null,
+    val peerRoutes: Map<String, CollabPeerRouteDiag> = emptyMap(),
+)
+
 /** 房间内协作者信息 */
 data class CollabPeer(
     val peerId: String,
@@ -49,6 +93,11 @@ data class CollabPeer(
     val badgeColorArgb: Int = CollabTopologyPolicy.assignBadgeColorArgb(peerId),
     val connectedP2P: Boolean = false,
     val signalingOnline: Boolean = true,
+    val virtualIp: String = "",
+    val routeMode: CollabRouteMode = CollabRouteMode.CONNECTING,
+    val tunnelProto: String = "",
+    val latencyMs: Int = -1,
+    val natType: CollabNatType = CollabNatType.UNKNOWN,
 )
 
 /** 房主审批队列中的待加入成员 */
@@ -368,6 +417,53 @@ object CollabTopologyPolicy {
         }
         val idx = (hash ushr 1) % BADGE_PALETTE.size
         return BADGE_PALETTE[idx]
+    }
+
+    private fun fnv1a32(raw: String): Long {
+        var h = 0x811C9DC5L
+        for (b in raw.toByteArray(Charsets.UTF_8)) {
+            h = (h xor (b.toLong() and 0xFFL))
+            h = (h * 0x01000193L) and 0xFFFFFFFFL
+        }
+        return h
+    }
+
+    fun deriveMeshSubnetByte(roomCode: String): Int =
+        10 + (fnv1a32(normalizeRoomCode(roomCode)) % 240L).toInt()
+
+    fun deriveMeshPort(roomCode: String): Int =
+        39000 + (fnv1a32(normalizeRoomCode(roomCode)) % 10000L).toInt()
+
+    fun deriveVirtualIp(roomCode: String, peerId: String): String {
+        val sb = deriveMeshSubnetByte(roomCode)
+        val hb = 10 + (fnv1a32(peerId) % 240L).toInt()
+        return "10.144.$sb.$hb"
+    }
+
+    fun parseNatType(raw: String): CollabNatType = when (raw.trim()) {
+        "OpenInternet" -> CollabNatType.OPEN_INTERNET
+        "NoPAT" -> CollabNatType.NO_PAT
+        "FullCone" -> CollabNatType.FULL_CONE
+        "Restricted" -> CollabNatType.RESTRICTED
+        "PortRestricted" -> CollabNatType.PORT_RESTRICTED
+        "Symmetric" -> CollabNatType.SYMMETRIC
+        "SymUdpFirewall" -> CollabNatType.SYM_UDP_FIREWALL
+        "SymmetricEasyInc" -> CollabNatType.SYMMETRIC_EASY_INC
+        "SymmetricEasyDec" -> CollabNatType.SYMMETRIC_EASY_DEC
+        else -> CollabNatType.UNKNOWN
+    }
+
+    fun natDifficultyLevel(natType: CollabNatType): Int = when (natType) {
+        CollabNatType.UNKNOWN -> 0
+        CollabNatType.OPEN_INTERNET,
+        CollabNatType.NO_PAT,
+        CollabNatType.FULL_CONE,
+        CollabNatType.RESTRICTED -> 1
+        CollabNatType.PORT_RESTRICTED,
+        CollabNatType.SYMMETRIC_EASY_INC,
+        CollabNatType.SYMMETRIC_EASY_DEC -> 2
+        CollabNatType.SYMMETRIC,
+        CollabNatType.SYM_UDP_FIREWALL -> 3
     }
 }
 

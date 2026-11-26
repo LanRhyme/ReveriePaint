@@ -6,6 +6,7 @@ import {
   ROOM_CODE_RE,
   buildIceServers,
   generateRoomCode,
+  isRelayConfigured,
   isTurnConfigured,
   jsonResponse,
   normalizeRoomCode,
@@ -41,6 +42,7 @@ export default {
           version: CONTRACT_VERSION,
           disabled: isDisabled(env),
           turnConfigured: isTurnConfigured(env),
+          relayConfigured: isRelayConfigured(env),
         });
       }
 

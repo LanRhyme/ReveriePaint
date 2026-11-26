@@ -1562,6 +1562,7 @@ object ReverieCoreBridge {
     external fun collabDrainInbound(): Boolean
     external fun collabPollEventsJson(): String
     external fun collabPollCursorsJson(): String
+    external fun collabNetStatusJson(): String
 
     external fun collabSendLocalCursor(
         docX: Float,

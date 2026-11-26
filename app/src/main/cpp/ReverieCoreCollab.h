@@ -1,5 +1,5 @@
 /*
- * ReverieCoreCollab - P2P 茶绘协同引擎 (libdatachannel + 多路 StrokeSession + 独立图层撤销)
+ * ReverieCoreCollab - P2P 茶绘协同引擎 (EasyTier + Framed Socket + 多路 StrokeSession + 独立图层撤销)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */

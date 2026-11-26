@@ -188,6 +188,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_collabPollCursorsJson(JNIEnv *env,
     return qStringToJstr(env, core()->collabPollCursorsJson());
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_collabNetStatusJson(JNIEnv *env, jobject)
+{
+    return qStringToJstr(env, core()->collabNetStatusJson());
+}
+
 JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_collabSendLocalCursor(
     JNIEnv *, jobject, jfloat docX, jfloat docY, jboolean isDrawing)

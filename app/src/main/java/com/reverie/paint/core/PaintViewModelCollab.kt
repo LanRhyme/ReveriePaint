@@ -14,11 +14,15 @@ import com.reverie.paint.core.collab.SignalingClient
 import com.reverie.paint.core.collab.SignalingEventListener
 import com.reverie.paint.model.CollabConnectionPhase
 import com.reverie.paint.model.CollabLayerDescriptor
+import com.reverie.paint.model.CollabNatType
+import com.reverie.paint.model.CollabNetworkDiag
 import com.reverie.paint.model.CollabPendingRequest
 import com.reverie.paint.model.CollabPeer
+import com.reverie.paint.model.CollabPeerRouteDiag
 import com.reverie.paint.model.CollabPermissionPolicy
 import com.reverie.paint.model.CollabPublicRoom
 import com.reverie.paint.model.CollabRole
+import com.reverie.paint.model.CollabRouteMode
 import com.reverie.paint.model.CollabTopologyPolicy
 import com.reverie.paint.model.LayerCollabPermission
 import com.reverie.paint.model.LayerNodeType
@@ -72,6 +76,7 @@ internal class CollabSessionState {
     var snapshotTotalChunks by mutableIntStateOf(0)
     var statusMessage by mutableStateOf<String?>(null)
     var reconnectAttempt by mutableIntStateOf(0)
+    var networkDiag by mutableStateOf(CollabNetworkDiag())
     var publicRooms by mutableStateOf<List<CollabPublicRoom>>(emptyList())
     var isLoadingPublicRooms by mutableStateOf(false)
     var publicRoomsError by mutableStateOf<String?>(null)
@@ -105,6 +110,9 @@ internal class CollabSessionState {
 
     internal var lastJoinPassword: String = ""
     internal var lastIceServersJson: String = "[]"
+    internal var lastEasyTierJson: String = "{}"
+    internal var localEndpointUris: List<String> = emptyList()
+    internal var lastNetDiagPollMs: Long = 0L
     internal var intentionalLeave: Boolean = false
     internal var lastCursorSentMs: Long = 0L
     internal var lastCursorDocX: Float = 0f
@@ -159,6 +167,81 @@ internal fun PaintViewModel.saveCollabIdentityPrefs(
             .putString(PREF_COLLAB_TURN_CRED, turnCredential)
             .apply()
     }
+}
+
+private fun PaintViewModel.buildEffectiveTransportConfigJson(
+    roomCode: String,
+    selfPeerId: String,
+    hostPeerId: String,
+    baseEasyTierJson: String,
+    peers: List<CollabPeer> = collab.peers,
+): String {
+    val root = runCatching { JSONObject(baseEasyTierJson.ifBlank { "{}" }) }.getOrDefault(JSONObject())
+    val normCode = CollabTopologyPolicy.normalizeRoomCode(roomCode)
+    if (root.optString("networkName").isBlank() && normCode.isNotEmpty()) {
+        root.put("networkName", "rvp-$normCode")
+    }
+    if (root.optString("selfVirtualIp").isBlank() && normCode.isNotEmpty() && selfPeerId.isNotEmpty()) {
+        val selfPeerVip = peers.firstOrNull { it.peerId == selfPeerId }?.virtualIp.orEmpty()
+        root.put(
+            "selfVirtualIp",
+            selfPeerVip.ifBlank { CollabTopologyPolicy.deriveVirtualIp(normCode, selfPeerId) },
+        )
+    }
+    if (normCode.isNotEmpty() && hostPeerId.isNotEmpty()) {
+        val hostVipFromPeers = peers.firstOrNull { it.peerId == hostPeerId }?.virtualIp.orEmpty()
+        if (root.optString("hostVirtualIp").isBlank() || hostVipFromPeers.isNotBlank()) {
+            root.put(
+                "hostVirtualIp",
+                hostVipFromPeers.ifBlank {
+                    root.optString("hostVirtualIp").ifBlank {
+                        CollabTopologyPolicy.deriveVirtualIp(normCode, hostPeerId)
+                    }
+                },
+            )
+        }
+    }
+    if (root.optInt("hostMeshPort", 0) <= 1024 && normCode.isNotEmpty()) {
+        root.put("hostMeshPort", CollabTopologyPolicy.deriveMeshPort(normCode))
+    }
+
+    val relays = JSONArray()
+    val seenRelays = LinkedHashSet<String>()
+    fun addRelayUri(raw: String) {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return
+        // 忽略旧版本配置的 TURN/STUN 地址, 仅接纳 EasyTier 节点协议或 bare host:port
+        if (trimmed.startsWith("turn:", ignoreCase = true) ||
+            trimmed.startsWith("turns:", ignoreCase = true) ||
+            trimmed.startsWith("stun:", ignoreCase = true)) {
+            return
+        }
+        val uri = if ("://" in trimmed) trimmed else "tcp://$trimmed"
+        if (seenRelays.add(uri)) relays.put(uri)
+    }
+    root.optJSONArray("relayPeers")?.let { arr ->
+        for (i in 0 until arr.length()) addRelayUri(arr.optString(i))
+    }
+    if (collab.customTurnUrl.isNotBlank()) {
+        collab.customTurnUrl.split(',').forEach { addRelayUri(it) }
+    }
+    // 公共节点兜底 (当服务端未注入专属中继且用户未填自定义节点时, 提供社区引导节点)
+    if (relays.length() == 0) {
+        addRelayUri("tcp://public.easytier.top:11010")
+    }
+    root.put("relayPeers", relays)
+
+    val stuns = root.optJSONArray("stunServers") ?: JSONArray()
+    if (stuns.length() == 0) {
+        stuns.put("stun.hitv.com")
+        stuns.put("stun.miwifi.com")
+        stuns.put("stun.chat.bilibili.com")
+        stuns.put("txt:stun.easytier.cn")
+        root.put("stunServers", stuns)
+    }
+    root.put("enableKcpProxy", true)
+    root.put("latencyFirst", true)
+    return root.toString()
 }
 
 private fun PaintViewModel.mergeEffectiveIceServers(baseJson: String): String {
@@ -329,6 +412,12 @@ internal fun PaintViewModel.createCollabRoom(
             collab.hostPeerId = created.hostPeerId
             collab.hostToken = created.hostToken
             collab.lastIceServersJson = mergeEffectiveIceServers(created.iceServersJson)
+            collab.lastEasyTierJson = buildEffectiveTransportConfigJson(
+                roomCode = created.roomCode,
+                selfPeerId = selfId,
+                hostPeerId = created.hostPeerId,
+                baseEasyTierJson = created.easyTierJson,
+            )
             client.connectWebSocket(
                 baseUrl = baseUrl,
                 roomCode = created.roomCode,
@@ -556,6 +645,7 @@ private fun PaintViewModel.handleCollabAdmittedOrWelcome(
     peers: List<CollabPeer>,
     canvasWidth: Int,
     canvasHeight: Int,
+    easyTierJson: String = "{}",
 ) {
     if (!collab.nativeStarted &&
         selfPeerId != hostPeerId &&
@@ -583,8 +673,16 @@ private fun PaintViewModel.handleCollabAdmittedOrWelcome(
     val mergedPeers = normalizePeersWithFlags(peers, hostPeerId, p2pStates)
     collab.peers = mergedPeers
 
-    val effIce = mergeEffectiveIceServers(iceServersJson)
-    collab.lastIceServersJson = effIce
+    collab.lastIceServersJson = mergeEffectiveIceServers(iceServersJson)
+    val effectiveBaseEt = if (easyTierJson.isNotBlank() && easyTierJson != "{}") easyTierJson else collab.lastEasyTierJson
+    val effTransport = buildEffectiveTransportConfigJson(
+        roomCode = roomCode,
+        selfPeerId = selfPeerId,
+        hostPeerId = hostPeerId,
+        baseEasyTierJson = effectiveBaseEt,
+        peers = mergedPeers,
+    )
+    collab.lastEasyTierJson = effTransport
     collab.phase = CollabConnectionPhase.CONNECTED
     collab.statusMessage = null
     collab.showLobbyDialog = false
@@ -603,9 +701,9 @@ private fun PaintViewModel.handleCollabAdmittedOrWelcome(
         } else {
             showActionToast(R.string.collab_joined_toast, R.drawable.ic_cloud)
         }
-        beginNativeCollabSession(gen, roomCode, selfPeerId, collab.selfName, hostPeerId, effIce, mergedPeers)
+        beginNativeCollabSession(gen, roomCode, selfPeerId, collab.selfName, hostPeerId, effTransport, mergedPeers)
     } else {
-        syncNativeOnSignalingReconnect(gen, hostPeerId, effIce, mergedPeers)
+        syncNativeOnSignalingReconnect(gen, hostPeerId, effTransport, mergedPeers)
     }
 }
 
@@ -620,6 +718,7 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
             peers: List<CollabPeer>,
             canvasWidth: Int,
             canvasHeight: Int,
+            easyTierJson: String,
         ) {
             mainHandler.post {
                 if (collab.sessionGeneration != gen) return@post
@@ -631,8 +730,8 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                     collab.selfPeerId = selfPeerId
                     collab.hostPeerId = hostPeerId
                     collab.role = if (selfPeerId == hostPeerId) CollabRole.HOST else CollabRole.PEER
-                    val effIce = mergeEffectiveIceServers(iceServersJson)
-                    collab.lastIceServersJson = effIce
+                    collab.lastIceServersJson = mergeEffectiveIceServers(iceServersJson)
+                    collab.lastEasyTierJson = easyTierJson
                     collab.phase = CollabConnectionPhase.WAITING_APPROVAL
                     collab.statusMessage = getString(R.string.collab_status_waiting_approval)
                 } else {
@@ -645,6 +744,7 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                         peers = peers,
                         canvasWidth = canvasWidth,
                         canvasHeight = canvasHeight,
+                        easyTierJson = easyTierJson,
                     )
                 }
             }
@@ -658,6 +758,7 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
             peers: List<CollabPeer>,
             canvasWidth: Int,
             canvasHeight: Int,
+            easyTierJson: String,
         ) {
             mainHandler.post {
                 if (collab.sessionGeneration != gen) return@post
@@ -670,6 +771,7 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                     peers = peers,
                     canvasWidth = canvasWidth,
                     canvasHeight = canvasHeight,
+                    easyTierJson = easyTierJson,
                 )
             }
         }
@@ -701,6 +803,14 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                                 peer.role == CollabRole.HOST,
                             )
                         }
+                    }
+                    if (collab.localEndpointUris.isNotEmpty() &&
+                        (collab.role == CollabRole.HOST || peer.peerId == collab.hostPeerId)) {
+                        val payload = JSONObject().apply {
+                            put("kind", "et_endpoints")
+                            put("uris", JSONArray(collab.localEndpointUris))
+                        }
+                        collab.signalingClient?.sendSignal(peer.peerId, payload)
                     }
                 }
             }
@@ -776,7 +886,7 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
             }
         }
 
-        override fun onHostChanged(newHostPeerId: String, hostToken: String?) {
+        override fun onHostChanged(newHostPeerId: String, hostToken: String?, hostVirtualIp: String) {
             mainHandler.post {
                 if (collab.sessionGeneration != gen) return@post
                 collab.hostOfflineTimerJob?.cancel()
@@ -786,11 +896,20 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                 if (!hostToken.isNullOrBlank()) {
                     collab.hostToken = hostToken
                 }
-                val p2pStates = collab.peers.associate { it.peerId to it.connectedP2P }
-                collab.peers = normalizePeersWithFlags(collab.peers, newHostPeerId, p2pStates)
-                runCore(render = false) {
-                    ReverieCoreBridge.collabOnHostChanged(newHostPeerId)
+                val updatedPeers = collab.peers.map { p ->
+                    if (p.peerId == newHostPeerId && hostVirtualIp.isNotBlank()) p.copy(virtualIp = hostVirtualIp) else p
                 }
+                val p2pStates = updatedPeers.associate { it.peerId to it.connectedP2P }
+                collab.peers = normalizePeersWithFlags(updatedPeers, newHostPeerId, p2pStates)
+                val updatedEt = buildEffectiveTransportConfigJson(
+                    roomCode = collab.roomCode,
+                    selfPeerId = collab.selfPeerId,
+                    hostPeerId = newHostPeerId,
+                    baseEasyTierJson = collab.lastEasyTierJson,
+                    peers = collab.peers,
+                )
+                collab.lastEasyTierJson = updatedEt
+                syncNativeOnSignalingReconnect(gen, newHostPeerId, updatedEt, collab.peers)
                 val newHostName = collab.peers.firstOrNull { it.peerId == newHostPeerId }?.name ?: newHostPeerId
                 showActionToast(getString(R.string.collab_host_migrated_msg, newHostName), R.drawable.ic_cloud)
             }
@@ -957,7 +1076,7 @@ private fun PaintViewModel.beginNativeCollabSession(
 private fun PaintViewModel.syncNativeOnSignalingReconnect(
     gen: Long,
     hostPeerId: String,
-    iceServersJson: String,
+    transportConfigJson: String,
     peers: List<CollabPeer>,
 ) {
     val peersArr = JSONArray()
@@ -967,12 +1086,13 @@ private fun PaintViewModel.syncNativeOnSignalingReconnect(
                 put("peerId", p.peerId)
                 put("name", p.name)
                 put("isHost", p.role == CollabRole.HOST)
+                if (p.virtualIp.isNotEmpty()) put("virtualIp", p.virtualIp)
             },
         )
     }
     runCore(render = false) {
         if (collab.sessionGeneration == gen && collab.nativeStarted) {
-            ReverieCoreBridge.collabSyncOnReconnect(hostPeerId, iceServersJson, peersArr.toString())
+            ReverieCoreBridge.collabSyncOnReconnect(hostPeerId, transportConfigJson, peersArr.toString())
         }
     }
 }
@@ -992,10 +1112,17 @@ private fun PaintViewModel.startCollabPollingLoop(gen: Long) {
                             }
                             val eventsJson = ReverieCoreBridge.collabPollEventsJson()
                             val cursorsJson = ReverieCoreBridge.collabPollCursorsJson()
-                            if (eventsJson != "[]" || cursorsJson != "[]" || collab.remoteCursors.isNotEmpty()) {
+                            val nowMs = android.os.SystemClock.uptimeMillis()
+                            val netStatusJson = if (nowMs - collab.lastNetDiagPollMs >= 1500L) {
+                                collab.lastNetDiagPollMs = nowMs
+                                ReverieCoreBridge.collabNetStatusJson()
+                            } else {
+                                null
+                            }
+                            if (eventsJson != "[]" || cursorsJson != "[]" || collab.remoteCursors.isNotEmpty() || netStatusJson != null) {
                                 mainHandler.post {
                                     if (collab.sessionGeneration == gen) {
-                                        handleCollabPolledData(gen, eventsJson, cursorsJson)
+                                        handleCollabPolledData(gen, eventsJson, cursorsJson, netStatusJson)
                                     }
                                 }
                             }
@@ -1010,7 +1137,81 @@ private fun PaintViewModel.startCollabPollingLoop(gen: Long) {
     }
 }
 
-private fun PaintViewModel.handleCollabPolledData(gen: Long, eventsJson: String, cursorsJson: String) {
+private fun parseCollabNetworkDiag(rawJson: String): CollabNetworkDiag {
+    val obj = runCatching { JSONObject(rawJson) }.getOrNull() ?: return CollabNetworkDiag()
+    val selfNat = CollabTopologyPolicy.parseNatType(obj.optString("udpNatType"))
+    val tcpNat = CollabTopologyPolicy.parseNatType(obj.optString("tcpNatType"))
+    val pubArr = obj.optJSONArray("publicIps")
+    val pubIps = ArrayList<String>(pubArr?.length() ?: 0)
+    if (pubArr != null) {
+        for (i in 0 until pubArr.length()) {
+            val s = pubArr.optString(i).trim()
+            if (s.isNotEmpty()) pubIps.add(s)
+        }
+    }
+    val routesMap = HashMap<String, CollabPeerRouteDiag>()
+    val peersArr = obj.optJSONArray("peers")
+    if (peersArr != null) {
+        for (i in 0 until peersArr.length()) {
+            val po = peersArr.optJSONObject(i) ?: continue
+            val pid = po.optString("peerId")
+            if (pid.isEmpty()) continue
+            val mode = when (po.optString("routeMode")) {
+                "p2p" -> CollabRouteMode.P2P_DIRECT
+                "relay" -> CollabRouteMode.RELAYED
+                else -> CollabRouteMode.CONNECTING
+            }
+            routesMap[pid] = CollabPeerRouteDiag(
+                peerId = pid,
+                routeMode = mode,
+                tunnelProto = po.optString("tunnelProto"),
+                latencyMs = po.optInt("latencyMs", -1),
+                lossRate = po.optDouble("lossRate", 0.0).toFloat(),
+                natType = CollabTopologyPolicy.parseNatType(po.optString("natType")),
+                rxBytes = po.optLong("rxBytes", 0L),
+                txBytes = po.optLong("txBytes", 0L),
+            )
+        }
+    }
+    return CollabNetworkDiag(
+        ready = obj.optBoolean("ready", false),
+        easytierRunning = obj.optBoolean("easytierRunning", false),
+        selfVirtualIp = obj.optString("selfVirtualIp"),
+        hostVirtualIp = obj.optString("hostVirtualIp"),
+        selfNatType = selfNat,
+        tcpNatType = tcpNat,
+        publicIps = pubIps,
+        natDifficultyLevel = CollabTopologyPolicy.natDifficultyLevel(selfNat),
+        errorMsg = obj.optString("error").takeIf { it.isNotBlank() },
+        peerRoutes = routesMap,
+    )
+}
+
+private fun PaintViewModel.handleCollabPolledData(
+    gen: Long,
+    eventsJson: String,
+    cursorsJson: String,
+    netStatusJson: String? = null,
+) {
+    if (!netStatusJson.isNullOrBlank()) {
+        val diag = parseCollabNetworkDiag(netStatusJson)
+        collab.networkDiag = diag
+        if (diag.peerRoutes.isNotEmpty()) {
+            collab.peers = collab.peers.map { peer ->
+                val rd = diag.peerRoutes[peer.peerId]
+                if (rd != null) {
+                    peer.copy(
+                        routeMode = rd.routeMode,
+                        tunnelProto = rd.tunnelProto,
+                        latencyMs = rd.latencyMs,
+                        natType = rd.natType,
+                    )
+                } else {
+                    peer
+                }
+            }
+        }
+    }
     if (eventsJson != "[]") {
         val arr = runCatching { JSONArray(eventsJson) }.getOrNull()
         if (arr != null) {
@@ -1022,6 +1223,38 @@ private fun PaintViewModel.handleCollabPolledData(gen: Long, eventsJson: String,
                         val payloadObj = obj.optJSONObject("payload")
                         if (toPeer.isNotEmpty() && payloadObj != null) {
                             collab.signalingClient?.sendSignal(toPeer, payloadObj)
+                        }
+                    }
+                    "local_endpoints" -> {
+                        val urisArr = obj.optJSONArray("uris")
+                        val uris = ArrayList<String>(urisArr?.length() ?: 0)
+                        if (urisArr != null) {
+                            for (k in 0 until urisArr.length()) {
+                                val u = urisArr.optString(k).trim()
+                                if (u.isNotEmpty()) uris.add(u)
+                            }
+                        }
+                        if (uris.isNotEmpty()) {
+                            collab.localEndpointUris = uris
+                            val payload = JSONObject().apply {
+                                put("kind", "et_endpoints")
+                                put("uris", JSONArray(uris))
+                            }
+                            if (collab.role == CollabRole.HOST) {
+                                for (p in collab.peers) {
+                                    if (p.peerId != collab.selfPeerId && p.signalingOnline) {
+                                        collab.signalingClient?.sendSignal(p.peerId, payload)
+                                    }
+                                }
+                            } else if (collab.hostPeerId.isNotEmpty()) {
+                                collab.signalingClient?.sendSignal(collab.hostPeerId, payload)
+                            }
+                        }
+                    }
+                    "transport_error" -> {
+                        val err = obj.optString("error")
+                        if (err.isNotBlank()) {
+                            collab.statusMessage = err
                         }
                     }
                     "peer_p2p_state" -> {
@@ -1266,6 +1499,10 @@ private fun PaintViewModel.teardownCollabLocalState(
     collab.pendingJoinCanvasH = 0
     collab.statusMessage = null
     collab.showRoomSheet = false
+    collab.networkDiag = CollabNetworkDiag()
+    collab.lastEasyTierJson = "{}"
+    collab.localEndpointUris = emptyList()
+    collab.lastNetDiagPollMs = 0L
 
     if (wasNativeStarted) {
         if (synchronousNativeStop || renderHandler == null) {

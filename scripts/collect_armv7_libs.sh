@@ -158,8 +158,16 @@ if [ "$miss" -ne 0 ]; then
 fi
 echo "   暂存 $n 个 Qt 库"
 
-echo "== 4/5 libc++_shared 与 ReverieCore =="
+echo "== 4/5 libc++_shared、EasyTier 与 ReverieCore =="
 strip_into "$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/arm-linux-androideabi/libc++_shared.so" libc++_shared.so
+if [ -f "$DEPS/lib/libeasytier_ffi.so" ]; then
+	strip_into "$DEPS/lib/libeasytier_ffi.so" libeasytier_ffi.so
+elif [ -f "$ROOT/third_party/android-native-libs-armeabi-v7a/libeasytier_ffi.so" ]; then
+	cp -f "$ROOT/third_party/android-native-libs-armeabi-v7a/libeasytier_ffi.so" "$STAGE/libeasytier_ffi.so"
+else
+	echo "缺少 libeasytier_ffi.so (先运行 ./scripts/build_easytier_deps.sh --abi armeabi-v7a)" >&2
+	exit 1
+fi
 strip_into "$RV_BUILD/libreverie_jni.so" libreverie_jni.so
 strip_into "$RV_BUILD/libreverie_core.so" libreverie_core.so
 

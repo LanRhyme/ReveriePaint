@@ -66,8 +66,10 @@ import com.reverie.paint.core.requestEndCollabAndPromptSave
 import com.reverie.paint.core.saveCollabArtwork
 import com.reverie.paint.core.showActionToast
 import com.reverie.paint.model.CollabConnectionPhase
+import com.reverie.paint.model.CollabNatType
 import com.reverie.paint.model.CollabPublicRoom
 import com.reverie.paint.model.CollabRole
+import com.reverie.paint.model.CollabRouteMode
 import com.reverie.paint.model.CollabTopologyPolicy
 import com.reverie.paint.ui.components.Dimens
 import com.reverie.paint.ui.components.LiquidSegmentedBar
@@ -464,7 +466,9 @@ internal fun CollabLobbyDialog(
                             onValueChange = { turnUrl = it.trim() },
                             placeholder = stringResource(R.string.collab_turn_url_hint),
                         )
-                        if (turnUrl.isNotBlank()) {
+                        if (turnUrl.startsWith("turn:", ignoreCase = true) ||
+                            turnUrl.startsWith("turns:", ignoreCase = true)
+                        ) {
                             ReTextInput(
                                 value = turnUser,
                                 onValueChange = { turnUser = it.trim() },
@@ -978,6 +982,56 @@ internal fun CollabRoomSheet(
                 }
             }
 
+            val nd = collab.networkDiag
+            val natLabel = when (nd.natDifficultyLevel) {
+                1 -> stringResource(R.string.collab_nat_easy, nd.selfNatType.name)
+                2 -> stringResource(R.string.collab_nat_medium, nd.selfNatType.name)
+                3 -> stringResource(R.string.collab_nat_hard)
+                else -> nd.errorMsg ?: stringResource(R.string.collab_nat_probing)
+            }
+            val natTint = when {
+                !nd.errorMsg.isNullOrBlank() -> colors.error
+                nd.natDifficultyLevel == 1 -> STATUS_GREEN
+                nd.natDifficultyLevel >= 2 -> STATUS_AMBER
+                else -> colors.subText
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(Dimens.radiusSm))
+                    .background(colors.panelHi)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(natTint),
+                    )
+                    Text(
+                        text = natLabel,
+                        color = natTint,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (nd.selfVirtualIp.isNotEmpty()) {
+                    Text(
+                        text = nd.selfVirtualIp,
+                        color = colors.subText,
+                        fontSize = 10.sp,
+                    )
+                }
+            }
+
             if (collab.snapshotTotalChunks > 0) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
@@ -1136,14 +1190,30 @@ internal fun CollabRoomSheet(
                                 }
                             }
                             if (!isSelf) {
+                                val routeDetail = buildString {
+                                    if (peer.tunnelProto.isNotEmpty()) append(peer.tunnelProto.uppercase())
+                                    if (peer.latencyMs >= 0) {
+                                        if (isNotEmpty()) append(" · ")
+                                        append("${peer.latencyMs}ms")
+                                    }
+                                }
                                 val subLabel = when {
                                     !peer.signalingOnline && !peer.connectedP2P -> stringResource(R.string.collab_peer_offline_tag)
+                                    peer.connectedP2P && peer.routeMode == CollabRouteMode.P2P_DIRECT && routeDetail.isNotEmpty() ->
+                                        stringResource(R.string.collab_route_p2p, routeDetail)
+                                    peer.connectedP2P && peer.routeMode == CollabRouteMode.RELAYED && routeDetail.isNotEmpty() ->
+                                        stringResource(R.string.collab_route_relay, routeDetail)
                                     peer.connectedP2P -> stringResource(R.string.collab_p2p_ready)
                                     else -> stringResource(R.string.collab_p2p_pending)
                                 }
+                                val subColor = when {
+                                    peer.connectedP2P && peer.routeMode == CollabRouteMode.RELAYED -> STATUS_AMBER
+                                    peer.connectedP2P -> STATUS_GREEN
+                                    else -> colors.subText
+                                }
                                 Text(
                                     text = subLabel,
-                                    color = if (peer.connectedP2P) STATUS_GREEN else colors.subText,
+                                    color = subColor,
                                     fontSize = 10.sp,
                                 )
                             }

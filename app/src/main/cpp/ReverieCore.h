@@ -1163,6 +1163,7 @@ public:
     bool collabDrainInbound();
     QString collabPollEventsJson();
     QString collabPollCursorsJson();
+    QString collabNetStatusJson();
     QString collabLayersMetaJson() const;
     void collabSendLocalCursor(float docX, float docY, bool isDrawing);
     bool collabUndo();

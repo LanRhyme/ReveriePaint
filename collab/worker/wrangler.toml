@@ -28,6 +28,9 @@ new_sqlite_classes = ["RoomDirectory"]
 
 [vars]
 DISABLED = "0"
-STUN_URLS = "stun:stun.qq.com:3478,stun:stun.miwifi.com:3478,stun:stun.cloudflare.com:3478"
+STUN_URLS = "stun.hitv.com,stun.miwifi.com,stun.chat.bilibili.com,txt:stun.easytier.cn"
+STUN_V6_URLS = "txt:stun-v6.easytier.cn"
+# 可选 EasyTier 中继节点列表 (逗号分隔, 如 tcp://hk.example.com:11010,udp://hk.example.com:11010)
+RELAY_PEERS = ""
 ROOM_TTL_MS = "86400000"
 IDLE_TTL_MS = "1800000"

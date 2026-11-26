@@ -283,6 +283,32 @@ object DiagnosticsManager {
         sb.append("\n--- [Stroke Latency & FrontBuffer Telemetry] ---\n")
         sb.append(StrokeLatencyDiag.formatForDiagnostics())
 
+        // 3.7 多人茶绘与 EasyTier 网络遥测
+        if (vm != null && (vm.collab.isActive || vm.collab.roomCode.isNotEmpty())) {
+            val nd = vm.collab.networkDiag
+            sb.append("\n--- [Collab P2P / EasyTier Telemetry] ---\n")
+            sb.append(
+                "Room: ${vm.collab.roomCode}, Role: ${vm.collab.role}, Phase: ${vm.collab.phase}, " +
+                    "SelfPeer: ${vm.collab.selfPeerId}, HostPeer: ${vm.collab.hostPeerId}\n"
+            )
+            sb.append(
+                "EasyTier: running=${nd.easytierRunning}, ready=${nd.ready}, " +
+                    "selfVip=${nd.selfVirtualIp}, hostVip=${nd.hostVirtualIp}, " +
+                    "udpNat=${nd.selfNatType} (diff=${nd.natDifficultyLevel}), tcpNat=${nd.tcpNatType}, " +
+                    "publicIps=${nd.publicIps.joinToString(",")}, err=${nd.errorMsg ?: "none"}\n"
+            )
+            for (p in vm.collab.peers) {
+                val rd = nd.peerRoutes[p.peerId]
+                sb.append(
+                    "  Peer ${p.peerId} (${p.name}): role=${p.role}, p2p=${p.connectedP2P}, " +
+                        "vip=${p.virtualIp}, route=${rd?.routeMode ?: p.routeMode}, " +
+                        "proto=${rd?.tunnelProto ?: p.tunnelProto}, rtt=${rd?.latencyMs ?: p.latencyMs}ms, " +
+                        "loss=${rd?.lossRate ?: 0f}, nat=${rd?.natType ?: p.natType}, " +
+                        "rx=${rd?.rxBytes ?: 0L}, tx=${rd?.txBytes ?: 0L}\n"
+                )
+            }
+        }
+
         // 4. 用户行为轨迹 (Breadcrumbs)
         sb.append("\n--- [User Action Breadcrumbs (Last 100)] ---\n")
         val crumbs = Breadcrumbs.dump()

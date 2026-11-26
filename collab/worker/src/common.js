@@ -126,6 +126,58 @@ export function isTurnConfigured(env) {
   );
 }
 
+export const DEFAULT_STUN_SERVERS = [
+  'stun.hitv.com',
+  'stun.miwifi.com',
+  'stun.chat.bilibili.com',
+  'txt:stun.easytier.cn',
+];
+
+export const DEFAULT_STUN_V6_SERVERS = ['txt:stun-v6.easytier.cn'];
+
+export function parseCsvList(raw) {
+  return String(raw || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export function parseStunServers(env) {
+  const configured = parseCsvList(env?.STUN_URLS).map((u) => u.replace(/^stun:/i, ''));
+  return configured.length > 0 ? configured : [...DEFAULT_STUN_SERVERS];
+}
+
+export function parseStunV6Servers(env) {
+  const configured = parseCsvList(env?.STUN_V6_URLS);
+  return configured.length > 0 ? configured : [...DEFAULT_STUN_V6_SERVERS];
+}
+
+export function parseRelayPeers(env) {
+  return parseCsvList(env?.RELAY_PEERS);
+}
+
+export function deriveMeshSubnetByte(roomCode) {
+  let h = 2166136261;
+  for (let i = 0; i < roomCode.length; i += 1) {
+    h ^= roomCode.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return 10 + (h % 240);
+}
+
+export function deriveMeshPort(roomCode) {
+  let h = 2166136261;
+  for (let i = 0; i < roomCode.length; i += 1) {
+    h ^= roomCode.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return 39000 + (h % 10000);
+}
+
+export function isRelayConfigured(env) {
+  return parseRelayPeers(env).length > 0;
+}
+
 export function parsePositiveInt(raw, fallback, min, max) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;

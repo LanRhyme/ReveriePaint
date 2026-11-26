@@ -1,5 +1,5 @@
 /*
- * ReverieCoreCollab - P2P 茶绘协同引擎 (libdatachannel + 多路 StrokeSession + 独立图层撤销)
+ * ReverieCoreCollab - P2P 茶绘协同引擎 (EasyTier + Framed Socket + 多路 StrokeSession + 独立图层撤销)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -10,7 +10,16 @@
 #include "StrokePaintInfo.h"
 #include "PaintOpTraits.h"
 
-#include <rtc/rtc.hpp>
+#include <arpa/inet.h>
+#include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <poll.h>
+#include <sys/eventfd.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <QCryptographicHash>
 #include <QDataStream>
@@ -27,7 +36,10 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <memory>
+#include <thread>
+#include <vector>
 
 namespace {
 
@@ -79,27 +91,113 @@ struct CursorEntry {
     qint64 updatedAtMs = 0;
 };
 
+struct EtKeyValuePair {
+    const char *key;
+    const char *value;
+};
+
+class EasyTierApi {
+public:
+    using FnRunNetworkInstance = int (*)(const char *cfg_str);
+    using FnRetainNetworkInstance = int (*)(const char *const *inst_names, size_t length);
+    using FnDeleteNetworkInstance = int (*)(const char *const *inst_names, size_t length);
+    using FnCollectNetworkInfos = int (*)(EtKeyValuePair *infos, size_t max_length);
+    using FnCallJsonRpc = int (*)(const char *service_name, const char *method_name,
+                                  const char *domain_name, const char *payload_json,
+                                  const char **out_response_json);
+    using FnGetErrorMsg = void (*)(const char **out);
+    using FnFreeString = void (*)(const char *s);
+
+    FnRunNetworkInstance runNetworkInstance = nullptr;
+    FnRetainNetworkInstance retainNetworkInstance = nullptr;
+    FnDeleteNetworkInstance deleteNetworkInstance = nullptr;
+    FnCollectNetworkInfos collectNetworkInfos = nullptr;
+    FnCallJsonRpc callJsonRpc = nullptr;
+    FnGetErrorMsg getErrorMsg = nullptr;
+    FnFreeString freeString = nullptr;
+
+    static EasyTierApi &instance()
+    {
+        static EasyTierApi api;
+        return api;
+    }
+
+    bool ensureLoaded(QString *errOut = nullptr)
+    {
+        std::lock_guard<std::mutex> lock(m_loadMutex);
+        if (m_loaded) return true;
+        if (!m_handle) {
+            m_handle = dlopen("libeasytier_ffi.so", RTLD_NOW | RTLD_LOCAL);
+            if (!m_handle) {
+                const char *err = dlerror();
+                m_loadError = QString::fromUtf8(err ? err : "dlopen libeasytier_ffi.so failed");
+                if (errOut) *errOut = m_loadError;
+                return false;
+            }
+        }
+        runNetworkInstance = reinterpret_cast<FnRunNetworkInstance>(dlsym(m_handle, "run_network_instance"));
+        retainNetworkInstance = reinterpret_cast<FnRetainNetworkInstance>(dlsym(m_handle, "retain_network_instance"));
+        deleteNetworkInstance = reinterpret_cast<FnDeleteNetworkInstance>(dlsym(m_handle, "delete_network_instance"));
+        collectNetworkInfos = reinterpret_cast<FnCollectNetworkInfos>(dlsym(m_handle, "collect_network_infos"));
+        callJsonRpc = reinterpret_cast<FnCallJsonRpc>(dlsym(m_handle, "call_json_rpc"));
+        getErrorMsg = reinterpret_cast<FnGetErrorMsg>(dlsym(m_handle, "get_error_msg"));
+        freeString = reinterpret_cast<FnFreeString>(dlsym(m_handle, "free_string"));
+
+        if (!runNetworkInstance || !retainNetworkInstance || !deleteNetworkInstance ||
+            !collectNetworkInfos || !getErrorMsg || !freeString) {
+            m_loadError = QStringLiteral("libeasytier_ffi.so missing required FFI symbols");
+            if (errOut) *errOut = m_loadError;
+            return false;
+        }
+        m_loaded = true;
+        m_loadError.clear();
+        return true;
+    }
+
+    QString lastErrorMessage() const
+    {
+        if (!getErrorMsg) return m_loadError;
+        const char *msg = nullptr;
+        getErrorMsg(&msg);
+        if (!msg) return m_loadError;
+        QString out = QString::fromUtf8(msg);
+        if (freeString) freeString(msg);
+        return out;
+    }
+
+private:
+    EasyTierApi() = default;
+    std::mutex m_loadMutex;
+    void *m_handle = nullptr;
+    bool m_loaded = false;
+    QString m_loadError;
+};
+
+struct EasyTierTransportConfig {
+    QString networkName;
+    QString networkSecret;
+    QString selfVirtualIp;
+    QString hostVirtualIp;
+    int hostMeshPort = 39500;
+    QStringList relayPeers;
+    QStringList stunServers;
+    QStringList stunServersV6;
+    bool enableKcpProxy = true;
+    bool latencyFirst = true;
+};
+
 struct PeerLink {
     QString peerId;
     QString name;
+    QString virtualIp;
     bool isHostPeer = false;
-    bool initiatedByUs = false;
     bool ctrlOpen = false;
     bool liveOpen = false;
     bool snapshotSent = false;
     bool isRelayChild = false;
     QString relayViaPeerId;
-    qint64 attemptStartedAtMs = 0;
-    qint64 disconnectedAtMs = 0;
-    qint64 nextRetryAtMs = 0;
     qint64 ctrlOpenedAtMs = 0;
     qint64 lastSnapshotReqAtMs = 0;
-    int retryCount = 0;
-    bool remoteDescriptionSet = false;
-    QVector<QPair<QString, QString>> pendingRemoteCandidates;
-    std::shared_ptr<rtc::PeerConnection> pc;
-    std::shared_ptr<rtc::DataChannel> ctrl;
-    std::shared_ptr<rtc::DataChannel> live;
 };
 
 struct IncomingSnapshotAssembly {
@@ -162,55 +260,193 @@ QByteArray wrapWithSeq(quint64 seq, const QByteArray &inner)
     return out;
 }
 
-bool parseIceServers(const QString &jsonStr, rtc::Configuration &cfg)
-{
-    cfg.enableIceTcp = true;
-    QJsonDocument doc = QJsonDocument::fromJson(jsonStr.toUtf8());
-    if (doc.isArray()) {
-        const QJsonArray arr = doc.array();
-        for (const QJsonValue &v : arr) {
-            if (!v.isObject()) continue;
-            const QJsonObject obj = v.toObject();
-            const QString user = obj.value("username").toString();
-            const QString cred = obj.value("credential").toString();
+constexpr int kMaxWireFrameBytes = 16 * 1024 * 1024;
+constexpr const char *kEasyTierInstanceName = "reverie_collab";
 
-            QStringList urls;
-            const QJsonValue uVal = obj.value("urls");
-            if (uVal.isString()) {
-                urls.append(uVal.toString());
-            } else if (uVal.isArray()) {
-                for (const QJsonValue &uv : uVal.toArray()) {
-                    if (uv.isString()) urls.append(uv.toString());
-                }
-            }
-            for (const QString &u : urls) {
-                if (u.isEmpty()) continue;
-                try {
-                    rtc::IceServer srv(u.toStdString());
-                    if (!user.isEmpty()) srv.username = user.toStdString();
-                    if (!cred.isEmpty()) srv.password = cred.toStdString();
-                    cfg.iceServers.push_back(std::move(srv));
-                } catch (const std::exception &e) {
-                    RPC_LOG("Collab bad IceServer (%s): %s", u.toUtf8().constData(), e.what());
-                }
-            }
+QString tomlEscape(const QString &raw)
+{
+    QString out;
+    out.reserve(raw.size() + 4);
+    for (QChar ch : raw) {
+        if (ch == QLatin1Char('\\')) out += QLatin1String("\\\\");
+        else if (ch == QLatin1Char('"')) out += QLatin1String("\\\"");
+        else if (ch == QLatin1Char('\n')) out += QLatin1String("\\n");
+        else if (ch == QLatin1Char('\r')) out += QLatin1String("\\r");
+        else if (ch == QLatin1Char('\t')) out += QLatin1String("\\t");
+        else out += ch;
+    }
+    return out;
+}
+
+QString sanitizeStunHost(const QString &raw)
+{
+    QString s = raw.trimmed();
+    if (s.startsWith(QLatin1String("stun:"), Qt::CaseInsensitive)) {
+        s = s.mid(5);
+    }
+    while (s.startsWith(QLatin1Char('/'))) {
+        s = s.mid(1);
+    }
+    if (s.endsWith(QLatin1String(":3478")) && !s.startsWith(QLatin1Char('['))) {
+        s.chop(5);
+    }
+    return s;
+}
+
+EasyTierTransportConfig parseEasyTierConfig(const QString &jsonStr,
+                                            const QString &roomCode,
+                                            const QString &selfPeerId,
+                                            const QString &hostPeerId)
+{
+    EasyTierTransportConfig cfg;
+    const QJsonDocument doc = QJsonDocument::fromJson(jsonStr.toUtf8());
+    if (doc.isObject()) {
+        const QJsonObject obj = doc.object();
+        cfg.networkName = obj.value(QStringLiteral("networkName")).toString();
+        cfg.networkSecret = obj.value(QStringLiteral("networkSecret")).toString();
+        cfg.selfVirtualIp = obj.value(QStringLiteral("selfVirtualIp")).toString();
+        cfg.hostVirtualIp = obj.value(QStringLiteral("hostVirtualIp")).toString();
+        cfg.hostMeshPort = obj.value(QStringLiteral("hostMeshPort")).toInt(39500);
+        cfg.enableKcpProxy = obj.value(QStringLiteral("enableKcpProxy")).toBool(true);
+        cfg.latencyFirst = obj.value(QStringLiteral("latencyFirst")).toBool(true);
+
+        const QJsonArray relays = obj.value(QStringLiteral("relayPeers")).toArray();
+        for (const QJsonValue &v : relays) {
+            const QString u = v.toString().trimmed();
+            if (!u.isEmpty() && !cfg.relayPeers.contains(u)) cfg.relayPeers.append(u);
+        }
+        const QJsonArray stuns = obj.value(QStringLiteral("stunServers")).toArray();
+        for (const QJsonValue &v : stuns) {
+            const QString u = sanitizeStunHost(v.toString());
+            if (!u.isEmpty() && !cfg.stunServers.contains(u)) cfg.stunServers.append(u);
+        }
+        const QJsonArray stunsV6 = obj.value(QStringLiteral("stunServersV6")).toArray();
+        for (const QJsonValue &v : stunsV6) {
+            const QString u = v.toString().trimmed();
+            if (!u.isEmpty() && !cfg.stunServersV6.contains(u)) cfg.stunServersV6.append(u);
         }
     }
-    if (cfg.iceServers.empty()) {
-        static const char *const kFallbackStun[] = {
-            "stun:stun.qq.com:3478",
-            "stun:stun.miwifi.com:3478",
-            "stun:stun.cloudflare.com:3478",
+
+    auto deriveIp = [](const QString &room, const QString &peer) -> QString {
+        auto fnv = [](const QString &s) -> quint32 {
+            quint32 h = 2166136261u;
+            const QByteArray b = s.toUtf8();
+            for (char ch : b) {
+                h ^= quint8(ch);
+                h *= 16777619u;
+            }
+            return h;
         };
-        for (const char *u : kFallbackStun) {
-            try {
-                cfg.iceServers.emplace_back(u);
-            } catch (const std::exception &e) {
-                RPC_LOG("Collab fallback STUN (%s): %s", u, e.what());
-            }
+        const quint32 sb = 10u + (fnv(room) % 240u);
+        const quint32 hb = 10u + (fnv(peer) % 240u);
+        return QStringLiteral("10.144.%1.%2").arg(sb).arg(hb);
+    };
+
+    if (cfg.networkName.isEmpty()) {
+        cfg.networkName = QStringLiteral("rvp-") + roomCode;
+    }
+    if (cfg.networkSecret.isEmpty()) {
+        const QByteArray digest = QCryptographicHash::hash(
+            (QStringLiteral("reverie-mesh-v1:") + roomCode).toUtf8(),
+            QCryptographicHash::Sha256);
+        cfg.networkSecret = QString::fromLatin1(digest.toHex().left(24));
+    }
+    if (cfg.selfVirtualIp.isEmpty() && !selfPeerId.isEmpty()) {
+        cfg.selfVirtualIp = deriveIp(roomCode, selfPeerId);
+    }
+    if (cfg.hostVirtualIp.isEmpty() && !hostPeerId.isEmpty()) {
+        cfg.hostVirtualIp = deriveIp(roomCode, hostPeerId);
+    }
+    if (cfg.hostMeshPort <= 1024 || cfg.hostMeshPort > 65535) {
+        quint32 h = 2166136261u;
+        const QByteArray b = roomCode.toUtf8();
+        for (char ch : b) {
+            h ^= quint8(ch);
+            h *= 16777619u;
+        }
+        cfg.hostMeshPort = 39000 + int(h % 10000u);
+    }
+    if (cfg.stunServers.isEmpty()) {
+        cfg.stunServers = {
+            QStringLiteral("stun.hitv.com"),
+            QStringLiteral("stun.miwifi.com"),
+            QStringLiteral("stun.chat.bilibili.com"),
+            QStringLiteral("txt:stun.easytier.cn"),
+        };
+    }
+    if (cfg.stunServersV6.isEmpty()) {
+        cfg.stunServersV6 = {QStringLiteral("txt:stun-v6.easytier.cn")};
+    }
+    return cfg;
+}
+
+bool setSocketNonBlocking(int fd)
+{
+    const int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) return false;
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
+}
+
+void configureCollabTcpSocket(int fd)
+{
+    int one = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+    setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
+    int idle = 5;
+    int intvl = 2;
+    int cnt = 3;
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+}
+
+int allocateFreeLoopbackPort()
+{
+    const int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return 0;
+    int one = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    int port = 0;
+    if (bind(fd, reinterpret_cast<const sockaddr *>(&addr), sizeof(addr)) == 0) {
+        sockaddr_in bound{};
+        socklen_t len = sizeof(bound);
+        if (getsockname(fd, reinterpret_cast<sockaddr *>(&bound), &len) == 0) {
+            port = ntohs(bound.sin_port);
         }
     }
+    close(fd);
+    return port;
+}
+
+bool extractHelloPeerId(const QByteArray &raw, QString *peerIdOut)
+{
+    if (raw.size() < 5 || quint8(raw.at(0)) != MsgHello) return false;
+    QDataStream ds(raw);
+    ds.setByteOrder(QDataStream::LittleEndian);
+    quint8 msgType = 0;
+    ds >> msgType;
+    if (msgType != MsgHello) return false;
+    quint32 len = 0;
+    ds >> len;
+    if (ds.status() != QDataStream::Ok || len == 0 || len > 128) return false;
+    if (ds.device()->bytesAvailable() < qint64(len)) return false;
+    QByteArray utf8(int(len), Qt::Uninitialized);
+    if (ds.readRawData(utf8.data(), int(len)) != int(len)) return false;
+    const QString id = QString::fromUtf8(utf8);
+    if (id.isEmpty()) return false;
+    if (peerIdOut) *peerIdOut = id;
     return true;
+}
+
+bool isHighPriorityWireMsg(const QByteArray &bytes)
+{
+    if (bytes.isEmpty()) return true;
+    const quint8 t = quint8(bytes.at(0));
+    return t != MsgSnapshotBegin && t != MsgSnapshotChunk && t != MsgLargeChunk && t != MsgTilePatch;
 }
 
 /** 计算两个同格式绘图层之间真实发生变化的最小包围盒 (64 行带宽 memcmp 快速跳过未变行) */
@@ -367,23 +603,18 @@ public:
                const QString &selfPeerId,
                const QString &selfName,
                const QString &hostPeerId,
-               const QString &iceServersJson,
+               const QString &transportConfigJson,
                const QString &cacheDir)
     {
         stop();
-        static std::once_flag s_rtcInitOnce;
-        std::call_once(s_rtcInitOnce, []() {
-            rtc::InitLogger(rtc::LogLevel::Warning, [](rtc::LogLevel level, const std::string &msg) {
-                RPC_LOG("libdatachannel[%d]: %s", int(level), msg.c_str());
-            });
-        });
 
         m_roomCode = roomCode;
         m_selfPeerId = selfPeerId;
         m_selfName = selfName;
         m_hostPeerId = hostPeerId;
         m_isHost = (selfPeerId == hostPeerId);
-        m_iceServersJson = iceServersJson;
+        m_transportConfigJson = transportConfigJson;
+        m_etConfig = parseEasyTierConfig(transportConfigJson, roomCode, selfPeerId, hostPeerId);
         m_cacheDir = cacheDir;
         m_brushCacheDir = cacheDir + QStringLiteral("/brushes");
         m_snapshotTempPath = cacheDir + QStringLiteral("/snapshot_tmp.revp");
@@ -404,41 +635,48 @@ public:
         m_pendingLocalStrokeOp = CollabHistoryOp{};
         m_localStrokeLiveMuted = false;
         m_localStrokeUsePatch = false;
+        {
+            std::lock_guard<std::mutex> slock(m_netStatusMutex);
+            m_cachedNetStatusJson = QStringLiteral("{\"ready\":false,\"easytierRunning\":false}");
+        }
+
+        m_wakeFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+        m_stopNetRequested = false;
+        m_needRestartEasyTier = true;
+        m_nextDialMs = 0;
+        m_addedRemoteEndpoints.clear();
+        m_pendingRemoteEndpoints.clear();
+        m_lastBroadcastEndpoints.clear();
+
         m_active = true;
         m_core->m_isCollabProject = true;
         m_core->m_collabRoomCode = roomCode;
+
+        m_netThread = std::thread([this]() { runNetworkLoop(); });
         return true;
     }
 
     void stop()
     {
         m_active = false;
+        m_stopNetRequested = true;
+        wakeNetThread();
+        if (m_netThread.joinable()) {
+            m_netThread.join();
+        }
+        if (m_wakeFd >= 0) {
+            close(m_wakeFd);
+            m_wakeFd = -1;
+        }
+
         clearDocumentBoundState();
 
-        QVector<std::shared_ptr<rtc::PeerConnection>> pcsToClose;
         {
             std::lock_guard<std::mutex> lock(m_netMutex);
-            for (auto it = m_peers.begin(); it != m_peers.end(); ++it) {
-                if (it->ctrl) {
-                    try { it->ctrl->close(); } catch (...) {}
-                }
-                if (it->live) {
-                    try { it->live->close(); } catch (...) {}
-                }
-                if (it->pc) {
-                    pcsToClose.append(it->pc);
-                }
-            }
             m_peers.clear();
+            m_peerConns.clear();
             m_relayChildren.clear();
             m_relayForwarderId.clear();
-        }
-        for (auto &pc : pcsToClose) {
-            try {
-                pc->resetCallbacks();
-                pc->close();
-            } catch (...) {
-            }
         }
 
         {
@@ -485,8 +723,6 @@ public:
     {
         if (!m_active || peerId.isEmpty() || peerId == m_selfPeerId) return;
 
-        bool needCreatePc = false;
-        bool shouldInitiate = false;
         {
             std::lock_guard<std::mutex> lock(m_netMutex);
             if (!m_peers.contains(peerId)) {
@@ -495,25 +731,12 @@ public:
                 link.name = name;
                 link.isHostPeer = isHostPeer;
                 m_peers.insert(peerId, std::move(link));
-                needCreatePc = true;
             } else {
                 m_peers[peerId].name = name;
                 m_peers[peerId].isHostPeer = isHostPeer;
             }
-            // 星型策略: 非房主端只与房主直连 (除非作为大房间被分配二跳转发节点);
-            // 防对称 glare 规则: 永远由非房主连房主, 若同级互联则 peerId 小的一方发起 offer
-            if (m_isHost) {
-                shouldInitiate = false;
-            } else if (peerId == m_hostPeerId) {
-                shouldInitiate = true;
-            } else {
-                needCreatePc = false;
-            }
         }
-
-        if (needCreatePc && shouldInitiate) {
-            ensurePeerConnection(peerId, true);
-        }
+        wakeNetThread();
         if (m_isHost) {
             recomputeTopologyIfNeeded();
         }
@@ -522,28 +745,16 @@ public:
     void onPeerLeft(const QString &peerId)
     {
         if (peerId.isEmpty()) return;
-        std::shared_ptr<rtc::PeerConnection> pcToClose;
         {
             std::lock_guard<std::mutex> lock(m_netMutex);
-            auto it = m_peers.find(peerId);
-            if (it != m_peers.end()) {
-                if (it->ctrl) {
-                    try { it->ctrl->close(); } catch (...) {}
-                }
-                if (it->live) {
-                    try { it->live->close(); } catch (...) {}
-                }
-                pcToClose = it->pc;
-                m_peers.erase(it);
+            m_peers.remove(peerId);
+            auto cit = m_peerConns.find(peerId);
+            if (cit != m_peerConns.end()) {
+                if (cit->fd >= 0) close(cit->fd);
+                m_peerConns.erase(cit);
             }
         }
-        if (pcToClose) {
-            try {
-                pcToClose->resetCallbacks();
-                pcToClose->close();
-            } catch (...) {
-            }
-        }
+        wakeNetThread();
         {
             std::lock_guard<std::mutex> lock(m_cursorMutex);
             m_cursors.remove(peerId);
@@ -561,24 +772,47 @@ public:
         const bool wasHost = m_isHost;
         m_hostPeerId = newHostPeerId;
         m_isHost = (m_selfPeerId == newHostPeerId);
+
+        QString newHostVip;
+        {
+            std::lock_guard<std::mutex> lock(m_netMutex);
+            auto it = m_peers.constFind(newHostPeerId);
+            if (it != m_peers.constEnd() && !it->virtualIp.isEmpty()) {
+                newHostVip = it->virtualIp;
+            }
+            for (auto pit = m_peers.begin(); pit != m_peers.end(); ++pit) {
+                pit->isHostPeer = (pit.key() == newHostPeerId);
+                pit->ctrlOpen = false;
+                pit->liveOpen = false;
+            }
+            for (auto cit = m_peerConns.begin(); cit != m_peerConns.end(); ++cit) {
+                if (cit->fd >= 0) close(cit->fd);
+            }
+            m_peerConns.clear();
+        }
+
+        if (!newHostVip.isEmpty()) {
+            std::lock_guard<std::mutex> lock(m_netMutex);
+            m_etConfig.hostVirtualIp = newHostVip;
+        } else {
+            const EasyTierTransportConfig fallback = parseEasyTierConfig(
+                m_transportConfigJson, m_roomCode, m_selfPeerId, newHostPeerId);
+            std::lock_guard<std::mutex> lock(m_netMutex);
+            m_etConfig.hostVirtualIp = fallback.hostVirtualIp;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(m_netMutex);
+            m_needRestartEasyTier = true;
+        }
+        wakeNetThread();
+
         if (m_isHost && !wasHost) {
             m_hostGlobalSeq = m_lastAppliedSeq;
-            // 新房主等待其余成员建立连接
             pushUiEvent(QJsonObject{
-                {"type", QStringLiteral("host_migrated")},
-                {"hostPeerId", newHostPeerId},
+                {QStringLiteral("type"), QStringLiteral("host_migrated")},
+                {QStringLiteral("hostPeerId"), newHostPeerId},
             });
-        } else if (!m_isHost && newHostPeerId != m_selfPeerId) {
-            // 若还未直连新房主, 主动发起连接
-            bool connected = false;
-            {
-                std::lock_guard<std::mutex> lock(m_netMutex);
-                auto it = m_peers.constFind(newHostPeerId);
-                connected = (it != m_peers.constEnd() && it->ctrlOpen);
-            }
-            if (!connected) {
-                ensurePeerConnection(newHostPeerId, true);
-            }
         }
     }
 
@@ -588,62 +822,19 @@ public:
         const QJsonDocument doc = QJsonDocument::fromJson(payloadJson.toUtf8());
         if (!doc.isObject()) return;
         const QJsonObject obj = doc.object();
-
-        if (obj.contains("sdp") && obj.value("type").toString() == QLatin1String("offer")) {
-            // 远端重连/重建时会发来全新的 Offer: 若旧 PeerConnection 已经过协商或断线,
-            // 必须先彻底拆掉旧对象再接收新 Offer, 否则 libdatachannel 握手或 DataChannel 会卡死
-            resetPeerConnection(fromPeerId, /*keepLinkMeta=*/true);
-        }
-
-        auto pc = ensurePeerConnection(fromPeerId, false);
-        if (!pc) return;
-
-        if (obj.contains("sdp")) {
-            const QString sdp = obj.value("sdp").toString();
-            const QString typeStr = obj.value("type").toString();
-            try {
-                rtc::Description::Type descType = rtc::Description::Type::Unspec;
-                if (typeStr == QLatin1String("offer")) descType = rtc::Description::Type::Offer;
-                else if (typeStr == QLatin1String("answer")) descType = rtc::Description::Type::Answer;
-                pc->setRemoteDescription(rtc::Description(sdp.toStdString(), descType));
-                QVector<QPair<QString, QString>> buffered;
-                {
-                    std::lock_guard<std::mutex> lock(m_netMutex);
-                    auto it = m_peers.find(fromPeerId);
-                    if (it != m_peers.end()) {
-                        it->remoteDescriptionSet = true;
-                        buffered.swap(it->pendingRemoteCandidates);
-                    }
-                }
-                for (const auto &c : buffered) {
-                    try {
-                        pc->addRemoteCandidate(rtc::Candidate(c.first.toStdString(), c.second.toStdString()));
-                    } catch (const std::exception &e) {
-                        RPC_LOG("Collab buffered candidate error from=%s: %s", fromPeerId.toUtf8().constData(), e.what());
-                    }
-                }
-            } catch (const std::exception &e) {
-                RPC_LOG("Collab setRemoteDescription error from=%s: %s", fromPeerId.toUtf8().constData(), e.what());
-            }
-        } else if (obj.contains("candidate")) {
-            const QString cand = obj.value("candidate").toString();
-            const QString mid = obj.value("sdpMid").toString();
-            if (cand.isEmpty()) return;
-            {
-                std::lock_guard<std::mutex> lock(m_netMutex);
-                auto it = m_peers.find(fromPeerId);
-                if (it != m_peers.end() && !it->remoteDescriptionSet) {
-                    if (it->pendingRemoteCandidates.size() < 64) {
-                        it->pendingRemoteCandidates.append(qMakePair(cand, mid));
-                    }
-                    return;
+        const QString kind = obj.value(QStringLiteral("kind")).toString();
+        if (kind == QLatin1String("et_endpoints")) {
+            const QJsonArray uris = obj.value(QStringLiteral("uris")).toArray();
+            if (uris.isEmpty()) return;
+            std::lock_guard<std::mutex> lock(m_netMutex);
+            for (const QJsonValue &v : uris) {
+                const QString u = v.toString().trimmed();
+                if (!u.isEmpty() && !m_addedRemoteEndpoints.contains(u) &&
+                    !m_pendingRemoteEndpoints.contains(u) && m_pendingRemoteEndpoints.size() < 32) {
+                    m_pendingRemoteEndpoints.append(u);
                 }
             }
-            try {
-                pc->addRemoteCandidate(rtc::Candidate(cand.toStdString(), mid.toStdString()));
-            } catch (const std::exception &e) {
-                RPC_LOG("Collab addRemoteCandidate error from=%s: %s", fromPeerId.toUtf8().constData(), e.what());
-            }
+            wakeNetThread();
         }
     }
 
@@ -1139,14 +1330,29 @@ public:
         return any;
     }
 
-    void syncOnReconnect(const QString &newHostPeerId, const QString &iceServersJson, const QString &peersJson)
+    void syncOnReconnect(const QString &newHostPeerId, const QString &transportConfigJson, const QString &peersJson)
     {
         if (!m_active) return;
-        if (!iceServersJson.isEmpty() && iceServersJson != QLatin1String("[]")) {
-            m_iceServersJson = iceServersJson;
-        }
-        if (!newHostPeerId.isEmpty() && newHostPeerId != m_hostPeerId) {
-            onHostChanged(newHostPeerId);
+        bool configChanged = false;
+        if (!transportConfigJson.isEmpty() && transportConfigJson != QLatin1String("[]") &&
+            transportConfigJson != QLatin1String("{}")) {
+            if (m_transportConfigJson != transportConfigJson) {
+                m_transportConfigJson = transportConfigJson;
+                const EasyTierTransportConfig parsed = parseEasyTierConfig(
+                    transportConfigJson, m_roomCode, m_selfPeerId,
+                    newHostPeerId.isEmpty() ? m_hostPeerId : newHostPeerId);
+                std::lock_guard<std::mutex> lock(m_netMutex);
+                if (parsed.networkName != m_etConfig.networkName ||
+                    parsed.networkSecret != m_etConfig.networkSecret ||
+                    parsed.selfVirtualIp != m_etConfig.selfVirtualIp ||
+                    parsed.hostVirtualIp != m_etConfig.hostVirtualIp ||
+                    parsed.hostMeshPort != m_etConfig.hostMeshPort ||
+                    parsed.relayPeers != m_etConfig.relayPeers) {
+                    m_etConfig = parsed;
+                    m_needRestartEasyTier = true;
+                    configChanged = true;
+                }
+            }
         }
 
         const QJsonDocument doc = QJsonDocument::fromJson(peersJson.toUtf8());
@@ -1154,12 +1360,23 @@ public:
             const QJsonArray arr = doc.array();
             for (const QJsonValue &v : arr) {
                 const QJsonObject o = v.toObject();
-                const QString pId = o.value("peerId").toString();
+                const QString pId = o.value(QStringLiteral("peerId")).toString();
                 if (pId.isEmpty() || pId == m_selfPeerId) continue;
-                const QString pName = o.value("name").toString(pId);
-                const bool isH = o.value("isHost").toBool(pId == m_hostPeerId);
+                const QString pName = o.value(QStringLiteral("name")).toString(pId);
+                const QString vIp = o.value(QStringLiteral("virtualIp")).toString();
+                const bool isH = o.value(QStringLiteral("isHost")).toBool(pId == m_hostPeerId);
                 onPeerJoined(pId, pName, isH);
+                if (!vIp.isEmpty()) {
+                    std::lock_guard<std::mutex> lock(m_netMutex);
+                    if (m_peers.contains(pId)) m_peers[pId].virtualIp = vIp;
+                }
             }
+        }
+
+        if (!newHostPeerId.isEmpty() && newHostPeerId != m_hostPeerId) {
+            onHostChanged(newHostPeerId);
+        } else if (configChanged) {
+            wakeNetThread();
         }
 
         if (!m_isHost && !m_hostPeerId.isEmpty()) {
@@ -1167,16 +1384,8 @@ public:
             {
                 std::lock_guard<std::mutex> lock(m_netMutex);
                 auto it = m_peers.constFind(m_hostPeerId);
-                if (it == m_peers.constEnd() || !it->pc) {
+                if (it == m_peers.constEnd() || !it->ctrlOpen) {
                     needRetryHost = true;
-                } else {
-                    const auto st = it->pc->state();
-                    if (st == rtc::PeerConnection::State::Failed ||
-                        st == rtc::PeerConnection::State::Closed ||
-                        st == rtc::PeerConnection::State::Disconnected ||
-                        !it->ctrlOpen) {
-                        needRetryHost = true;
-                    }
                 }
             }
             if (needRetryHost) {
@@ -1188,54 +1397,52 @@ public:
     void retryPeer(const QString &peerId)
     {
         if (!m_active || peerId.isEmpty() || peerId == m_selfPeerId) return;
-        const bool shouldInitiate = (!m_isHost && peerId == m_hostPeerId);
         resetPeerConnection(peerId, /*keepLinkMeta=*/true);
-        if (shouldInitiate) {
-            ensurePeerConnection(peerId, true);
+        if (!m_isHost && peerId == m_hostPeerId) {
+            std::lock_guard<std::mutex> lock(m_netMutex);
+            m_nextDialMs = 0;
         }
+        wakeNetThread();
     }
 
     void resetPeerConnection(const QString &peerId, bool keepLinkMeta)
     {
-        std::shared_ptr<rtc::PeerConnection> oldPc;
-        std::shared_ptr<rtc::DataChannel> oldCtrl;
-        std::shared_ptr<rtc::DataChannel> oldLive;
+        bool pushDisconnected = false;
         {
             std::lock_guard<std::mutex> lock(m_netMutex);
+            auto cit = m_peerConns.find(peerId);
+            if (cit != m_peerConns.end()) {
+                if (cit->fd >= 0) close(cit->fd);
+                m_peerConns.erase(cit);
+            }
             auto it = m_peers.find(peerId);
-            if (it == m_peers.end()) return;
-            oldCtrl = it->ctrl;
-            oldLive = it->live;
-            oldPc = it->pc;
-            it->ctrl.reset();
-            it->live.reset();
-            it->pc.reset();
-            it->ctrlOpen = false;
-            it->liveOpen = false;
-            it->snapshotSent = false;
-            it->disconnectedAtMs = 0;
-            it->ctrlOpenedAtMs = 0;
-            it->lastSnapshotReqAtMs = 0;
-            it->remoteDescriptionSet = false;
-            it->pendingRemoteCandidates.clear();
-            if (!keepLinkMeta) {
-                m_peers.erase(it);
+            if (it != m_peers.end()) {
+                pushDisconnected = it->ctrlOpen;
+                it->ctrlOpen = false;
+                it->liveOpen = false;
+                it->snapshotSent = false;
+                it->ctrlOpenedAtMs = 0;
+                it->lastSnapshotReqAtMs = 0;
+                if (!keepLinkMeta) {
+                    m_peers.erase(it);
+                }
             }
         }
-        if (oldCtrl) {
-            try { oldCtrl->close(); } catch (...) {}
-        }
-        if (oldLive) {
-            try { oldLive->close(); } catch (...) {}
-        }
-        if (oldPc) {
-            try {
-                oldPc->resetCallbacks();
-                oldPc->close();
-            } catch (...) {
-            }
+        if (pushDisconnected) {
+            pushUiEvent(QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("peer_p2p_state")},
+                {QStringLiteral("peerId"), peerId},
+                {QStringLiteral("connected"), false},
+            });
         }
         purgeIncomingLargeForPeer(peerId);
+        wakeNetThread();
+    }
+
+    QString netStatusJson()
+    {
+        std::lock_guard<std::mutex> lock(m_netStatusMutex);
+        return m_cachedNetStatusJson;
     }
 
     bool drainInbound()
@@ -1383,7 +1590,8 @@ private:
     QString m_selfPeerId;
     QString m_selfName;
     QString m_hostPeerId;
-    QString m_iceServersJson;
+    QString m_transportConfigJson;
+    EasyTierTransportConfig m_etConfig;
     QString m_cacheDir;
     QString m_brushCacheDir;
     QString m_snapshotTempPath;
@@ -1393,10 +1601,59 @@ private:
     quint32 m_localStrokeSeq = 0;
     quint32 m_simStrokeSeq = 0;
 
+    struct TxFrame {
+        uint8_t hdr[4]{};
+        QByteArray payload;
+        size_t offset = 0;
+    };
+
+    struct RxFrameState {
+        uint8_t hdr[4]{};
+        size_t hdrPos = 0;
+        quint32 len = 0;
+        QByteArray buf;
+        size_t pos = 0;
+    };
+
+    struct SocketPeerConn {
+        int fd = -1;
+        bool connecting = false;
+        bool handshakeDone = false;
+        qint64 connectStartedMs = 0;
+        qint64 handshakeDeadlineMs = 0;
+        std::deque<TxFrame> hiTx;
+        std::deque<TxFrame> loTx;
+        TxFrame curTx;
+        bool hasCurTx = false;
+        RxFrameState rx;
+    };
+
+    struct PendingAcceptConn {
+        int fd = -1;
+        qint64 acceptedAtMs = 0;
+        RxFrameState rx;
+    };
+
     std::mutex m_netMutex;
     QHash<QString, PeerLink> m_peers;
+    QHash<QString, SocketPeerConn> m_peerConns;
     QString m_relayForwarderId;
     QSet<QString> m_relayChildren;
+
+    std::thread m_netThread;
+    std::atomic<bool> m_stopNetRequested{false};
+    int m_wakeFd = -1;
+    bool m_needRestartEasyTier = false;
+    int m_localForwardPort = 0;
+    int m_actualHostMeshPort = 0;
+    int m_dialRetryCount = 0;
+    qint64 m_nextDialMs = 0;
+    QStringList m_pendingRemoteEndpoints;
+    QSet<QString> m_addedRemoteEndpoints;
+    QStringList m_lastBroadcastEndpoints;
+
+    std::mutex m_netStatusMutex;
+    QString m_cachedNetStatusJson = QStringLiteral("{\"ready\":false,\"easytierRunning\":false}");
 
     std::mutex m_inMutex;
     QVector<InboundPacket> m_inboundQueue;
@@ -1419,6 +1676,48 @@ private:
     qint64 m_lastWatchdogMs = 0;
     bool m_hasLoadedSnapshot = false;
 
+    void wakeNetThread()
+    {
+        if (m_wakeFd >= 0) {
+            const uint64_t val = 1;
+            const ssize_t n = write(m_wakeFd, &val, sizeof(val));
+            (void)n;
+        }
+    }
+
+    QByteArray buildHelloPacket(bool forceSnapshotOnly) const
+    {
+        QByteArray hello = packMsgHeader(MsgHello);
+        QDataStream ds(&hello, QIODevice::Append);
+        ds.setByteOrder(QDataStream::LittleEndian);
+        writeUtf8(ds, m_selfPeerId);
+        if (forceSnapshotOnly) {
+            writeUtf8(ds, QStringLiteral("__SEND_SNAPSHOT__"));
+            ds << kCollabProtoVersion;
+        } else {
+            writeUtf8(ds, m_selfName);
+            ds << kCollabProtoVersion << m_lastAppliedSeq << quint8(m_hasLoadedSnapshot ? 0 : 1);
+        }
+        return hello;
+    }
+
+    static void enqueueFrameToConn(SocketPeerConn &conn, const QByteArray &bytes, bool highPriority)
+    {
+        if (bytes.isEmpty() || bytes.size() > kMaxWireFrameBytes) return;
+        TxFrame frame;
+        const quint32 len = quint32(bytes.size());
+        frame.hdr[0] = uint8_t((len >> 24) & 0xFF);
+        frame.hdr[1] = uint8_t((len >> 16) & 0xFF);
+        frame.hdr[2] = uint8_t((len >> 8) & 0xFF);
+        frame.hdr[3] = uint8_t(len & 0xFF);
+        frame.payload = bytes;
+        if (highPriority) {
+            conn.hiTx.push_back(std::move(frame));
+        } else {
+            conn.loTx.push_back(std::move(frame));
+        }
+    }
+
     void runP2pWatchdog()
     {
         if (!m_active || m_isHost || m_hostPeerId.isEmpty()) return;
@@ -1426,47 +1725,907 @@ private:
         if (now - m_lastWatchdogMs < 1500) return;
         m_lastWatchdogMs = now;
 
-        bool needRetry = false;
         bool needSnapshotReq = false;
         {
             std::lock_guard<std::mutex> lock(m_netMutex);
             auto it = m_peers.find(m_hostPeerId);
             if (it == m_peers.end()) return;
-            if (it->ctrlOpen && it->pc && it->pc->state() == rtc::PeerConnection::State::Connected) {
-                it->retryCount = 0;
-                it->disconnectedAtMs = 0;
+            if (it->ctrlOpen) {
                 if (!m_hasLoadedSnapshot && !m_incomingSnapshot.active &&
                     it->ctrlOpenedAtMs > 0 && now - it->lastSnapshotReqAtMs >= 4000) {
                     it->lastSnapshotReqAtMs = now;
                     needSnapshotReq = true;
                 }
-            } else if (now >= it->nextRetryAtMs) {
-                const auto st = it->pc ? it->pc->state() : rtc::PeerConnection::State::Closed;
-                const bool stuckConnecting = !it->ctrlOpen && it->attemptStartedAtMs > 0 &&
-                                             (now - it->attemptStartedAtMs >= 8000);
-                const bool deadDisconnect = (st == rtc::PeerConnection::State::Disconnected &&
-                                             it->disconnectedAtMs > 0 && now - it->disconnectedAtMs >= 3500);
-                if (!it->pc || st == rtc::PeerConnection::State::Failed ||
-                    st == rtc::PeerConnection::State::Closed || deadDisconnect || stuckConnecting) {
-                    const qint64 backoffMs = qMin<qint64>(10000, 1500LL << qMin(it->retryCount, 3));
-                    it->retryCount++;
-                    it->nextRetryAtMs = now + backoffMs;
-                    needRetry = true;
-                }
             }
         }
         if (needSnapshotReq) {
-            QByteArray hello = packMsgHeader(MsgHello);
-            QDataStream ds(&hello, QIODevice::Append);
-            ds.setByteOrder(QDataStream::LittleEndian);
-            writeUtf8(ds, m_selfPeerId);
-            writeUtf8(ds, QStringLiteral("__SEND_SNAPSHOT__"));
-            ds << kCollabProtoVersion;
-            sendBytesToPeer(m_hostPeerId, hello, false);
+            sendBytesToPeer(m_hostPeerId, buildHelloPacket(true), false);
         }
-        if (needRetry) {
-            RPC_LOG("Collab watchdog retrying P2P to host=%s", m_hostPeerId.toUtf8().constData());
-            retryPeer(m_hostPeerId);
+    }
+
+    static QString buildEasyTierToml(const EasyTierTransportConfig &cfg,
+                                     const QString &selfPeerId,
+                                     bool isHost,
+                                     int localForwardPort)
+    {
+        QString toml;
+        toml += QStringLiteral("instance_name = \"%1\"\n").arg(QLatin1String(kEasyTierInstanceName));
+        toml += QStringLiteral("hostname = \"%1\"\n").arg(tomlEscape(selfPeerId));
+        if (!cfg.selfVirtualIp.isEmpty()) {
+            toml += QStringLiteral("ipv4 = \"%1\"\n").arg(tomlEscape(cfg.selfVirtualIp));
+        }
+        toml += QStringLiteral("dhcp = false\n");
+        toml += QStringLiteral("listeners = [\"udp://0.0.0.0:0\", \"tcp://0.0.0.0:0\", \"udp://[::]:0\"]\n");
+
+        if (!cfg.stunServers.isEmpty()) {
+            QStringList quoted;
+            for (const QString &s : cfg.stunServers) {
+                quoted.append(QStringLiteral("\"%1\"").arg(tomlEscape(s)));
+            }
+            toml += QStringLiteral("stun_servers = [%1]\n").arg(quoted.join(QStringLiteral(", ")));
+        }
+        if (!cfg.stunServersV6.isEmpty()) {
+            QStringList quoted;
+            for (const QString &s : cfg.stunServersV6) {
+                quoted.append(QStringLiteral("\"%1\"").arg(tomlEscape(s)));
+            }
+            toml += QStringLiteral("stun_servers_v6 = [%1]\n").arg(quoted.join(QStringLiteral(", ")));
+        }
+
+        toml += QStringLiteral("\n[network_identity]\n");
+        toml += QStringLiteral("network_name = \"%1\"\n").arg(tomlEscape(cfg.networkName));
+        toml += QStringLiteral("network_secret = \"%1\"\n").arg(tomlEscape(cfg.networkSecret));
+
+        for (const QString &relay : cfg.relayPeers) {
+            if (relay.isEmpty()) continue;
+            toml += QStringLiteral("\n[[peer]]\nuri = \"%1\"\n").arg(tomlEscape(relay));
+        }
+
+        if (!isHost && localForwardPort > 0 && !cfg.hostVirtualIp.isEmpty() && cfg.hostMeshPort > 0) {
+            toml += QStringLiteral("\n[[port_forward]]\n");
+            toml += QStringLiteral("bind_addr = \"127.0.0.1:%1\"\n").arg(localForwardPort);
+            toml += QStringLiteral("dst_addr = \"%1:%2\"\n").arg(tomlEscape(cfg.hostVirtualIp)).arg(cfg.hostMeshPort);
+            toml += QStringLiteral("proto = \"tcp\"\n");
+        }
+
+        toml += QStringLiteral("\n[flags]\n");
+        toml += QStringLiteral("no_tun = true\n");
+        toml += QStringLiteral("bind_device = false\n");
+        toml += QStringLiteral("use_smoltcp = true\n");
+        toml += QStringLiteral("enable_kcp_proxy = %1\n").arg(cfg.enableKcpProxy ? QStringLiteral("true") : QStringLiteral("false"));
+        toml += QStringLiteral("latency_first = %1\n").arg(cfg.latencyFirst ? QStringLiteral("true") : QStringLiteral("false"));
+        toml += QStringLiteral("multi_thread = true\n");
+        toml += QStringLiteral("multi_thread_count = 2\n");
+        toml += QStringLiteral("enable_ipv6 = true\n");
+        toml += QStringLiteral("disable_p2p = false\n");
+        return toml;
+    }
+
+    static int drainSocketFrames(int fd, RxFrameState &rx, std::vector<QByteArray> &framesOut)
+    {
+        for (;;) {
+            if (rx.hdrPos < 4) {
+                const ssize_t n = recv(fd, rx.hdr + rx.hdrPos, 4 - rx.hdrPos, 0);
+                if (n > 0) {
+                    rx.hdrPos += size_t(n);
+                    if (rx.hdrPos == 4) {
+                        rx.len = (quint32(rx.hdr[0]) << 24) |
+                                 (quint32(rx.hdr[1]) << 16) |
+                                 (quint32(rx.hdr[2]) << 8) |
+                                 quint32(rx.hdr[3]);
+                        if (rx.len == 0 || rx.len > quint32(kMaxWireFrameBytes)) {
+                            RPC_LOG("Collab invalid wire frame len=%u", unsigned(rx.len));
+                            return -1;
+                        }
+                        rx.buf.resize(int(rx.len));
+                        rx.pos = 0;
+                    }
+                    continue;
+                }
+                if (n == 0) return -1;
+                if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+                if (errno == EINTR) continue;
+                return -1;
+            } else {
+                const size_t rem = size_t(rx.len) - rx.pos;
+                const ssize_t n = recv(fd, rx.buf.data() + rx.pos, rem, 0);
+                if (n > 0) {
+                    rx.pos += size_t(n);
+                    if (rx.pos == size_t(rx.len)) {
+                        framesOut.push_back(std::move(rx.buf));
+                        rx.buf.clear();
+                        rx.hdrPos = 0;
+                        rx.len = 0;
+                        rx.pos = 0;
+                    }
+                    continue;
+                }
+                if (n == 0) return -1;
+                if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+                if (errno == EINTR) continue;
+                return -1;
+            }
+        }
+    }
+
+    static int flushSocketTx(SocketPeerConn &conn)
+    {
+        for (;;) {
+            if (!conn.hasCurTx) {
+                if (!conn.hiTx.empty()) {
+                    conn.curTx = std::move(conn.hiTx.front());
+                    conn.hiTx.pop_front();
+                    conn.curTx.offset = 0;
+                    conn.hasCurTx = true;
+                } else if (!conn.loTx.empty()) {
+                    conn.curTx = std::move(conn.loTx.front());
+                    conn.loTx.pop_front();
+                    conn.curTx.offset = 0;
+                    conn.hasCurTx = true;
+                } else {
+                    return 0;
+                }
+            }
+            const size_t total = 4 + size_t(conn.curTx.payload.size());
+            while (conn.curTx.offset < total) {
+                const char *ptr = nullptr;
+                size_t chunk = 0;
+                if (conn.curTx.offset < 4) {
+                    ptr = reinterpret_cast<const char *>(conn.curTx.hdr + conn.curTx.offset);
+                    chunk = 4 - conn.curTx.offset;
+                } else {
+                    const size_t pOff = conn.curTx.offset - 4;
+                    ptr = conn.curTx.payload.constData() + pOff;
+                    chunk = size_t(conn.curTx.payload.size()) - pOff;
+                }
+                const ssize_t n = send(conn.fd, ptr, chunk, MSG_NOSIGNAL);
+                if (n > 0) {
+                    conn.curTx.offset += size_t(n);
+                    continue;
+                }
+                if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                    return 0;
+                }
+                if (n < 0 && errno == EINTR) continue;
+                return -1;
+            }
+            conn.hasCurTx = false;
+            conn.curTx.payload.clear();
+        }
+    }
+
+    static int openHostLoopbackListener(int preferredPort, int *actualPortOut)
+    {
+        const int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        if (fd < 0) return -1;
+        setSocketNonBlocking(fd);
+        int one = 1;
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = htons(uint16_t(preferredPort));
+        if (bind(fd, reinterpret_cast<const sockaddr *>(&addr), sizeof(addr)) != 0) {
+            addr.sin_port = 0;
+            if (bind(fd, reinterpret_cast<const sockaddr *>(&addr), sizeof(addr)) != 0) {
+                close(fd);
+                return -1;
+            }
+        }
+        if (listen(fd, 32) != 0) {
+            close(fd);
+            return -1;
+        }
+        sockaddr_in bound{};
+        socklen_t len = sizeof(bound);
+        if (getsockname(fd, reinterpret_cast<sockaddr *>(&bound), &len) == 0 && actualPortOut) {
+            *actualPortOut = ntohs(bound.sin_port);
+        }
+        return fd;
+    }
+
+    static QString natTypeToString(int natInt)
+    {
+        switch (natInt) {
+        case 1: return QStringLiteral("OpenInternet");
+        case 2: return QStringLiteral("NoPAT");
+        case 3: return QStringLiteral("FullCone");
+        case 4: return QStringLiteral("Restricted");
+        case 5: return QStringLiteral("PortRestricted");
+        case 6: return QStringLiteral("Symmetric");
+        case 7: return QStringLiteral("SymUdpFirewall");
+        case 8: return QStringLiteral("SymmetricEasyInc");
+        case 9: return QStringLiteral("SymmetricEasyDec");
+        default: return QStringLiteral("Unknown");
+        }
+    }
+
+    static int natValToInt(const QJsonValue &v)
+    {
+        if (v.isDouble()) return v.toInt(0);
+        const QString s = v.toString();
+        if (s == QLatin1String("OpenInternet")) return 1;
+        if (s == QLatin1String("NoPAT")) return 2;
+        if (s == QLatin1String("FullCone")) return 3;
+        if (s == QLatin1String("Restricted")) return 4;
+        if (s == QLatin1String("PortRestricted")) return 5;
+        if (s == QLatin1String("Symmetric")) return 6;
+        if (s == QLatin1String("SymUdpFirewall")) return 7;
+        if (s == QLatin1String("SymmetricEasyInc")) return 8;
+        if (s == QLatin1String("SymmetricEasyDec")) return 9;
+        return 0;
+    }
+
+    static QString formatVirtualIpv4(const QJsonValue &v)
+    {
+        if (v.isString()) return v.toString();
+        if (!v.isObject()) return QString();
+        const QJsonObject o = v.toObject();
+        const QJsonValue addrV = o.value(QStringLiteral("address"));
+        quint32 raw = 0;
+        if (addrV.isObject()) {
+            raw = quint32(addrV.toObject().value(QStringLiteral("addr")).toDouble(0));
+        } else if (addrV.isDouble()) {
+            raw = quint32(addrV.toDouble(0));
+        }
+        if (raw == 0) return QString();
+        return QStringLiteral("%1.%2.%3.%4")
+            .arg((raw >> 24) & 0xFFu)
+            .arg((raw >> 16) & 0xFFu)
+            .arg((raw >> 8) & 0xFFu)
+            .arg(raw & 0xFFu);
+    }
+
+    void pollEasyTierTelemetry(EasyTierApi &api, bool etStarted, const QString &lastErr)
+    {
+        if (!etStarted) {
+            QJsonObject out;
+            out.insert(QStringLiteral("ready"), false);
+            out.insert(QStringLiteral("easytierRunning"), false);
+            out.insert(QStringLiteral("error"), lastErr);
+            const QString json = QString::fromUtf8(QJsonDocument(out).toJson(QJsonDocument::Compact));
+            std::lock_guard<std::mutex> lock(m_netStatusMutex);
+            m_cachedNetStatusJson = json;
+            return;
+        }
+
+        EtKeyValuePair kv{nullptr, nullptr};
+        const int n = api.collectNetworkInfos(&kv, 1);
+        if (n < 0) {
+            const QString err = api.lastErrorMessage();
+            QJsonObject out;
+            out.insert(QStringLiteral("ready"), false);
+            out.insert(QStringLiteral("easytierRunning"), false);
+            out.insert(QStringLiteral("error"), err);
+            const QString json = QString::fromUtf8(QJsonDocument(out).toJson(QJsonDocument::Compact));
+            std::lock_guard<std::mutex> lock(m_netStatusMutex);
+            m_cachedNetStatusJson = json;
+            return;
+        }
+        QString rawInfoJson;
+        if (n >= 1) {
+            if (kv.value) rawInfoJson = QString::fromUtf8(kv.value);
+            if (kv.key) api.freeString(kv.key);
+            if (kv.value) api.freeString(kv.value);
+        }
+        if (rawInfoJson.isEmpty()) return;
+
+        const QJsonDocument doc = QJsonDocument::fromJson(rawInfoJson.toUtf8());
+        if (!doc.isObject()) return;
+        const QJsonObject root = doc.object();
+        const bool running = root.value(QStringLiteral("running")).toBool(false);
+        const QString errMsg = root.value(QStringLiteral("error_msg")).toString();
+        const QJsonObject myInfo = root.value(QStringLiteral("my_node_info")).toObject();
+        const QJsonObject myStun = myInfo.value(QStringLiteral("stun_info")).toObject();
+
+        const QString udpNat = natTypeToString(natValToInt(myStun.value(QStringLiteral("udp_nat_type"))));
+        const QString tcpNat = natTypeToString(natValToInt(myStun.value(QStringLiteral("tcp_nat_type"))));
+        const QString myVip = formatVirtualIpv4(myInfo.value(QStringLiteral("virtual_ipv4")));
+
+        QJsonArray publicIps;
+        QStringList publicV6Addrs;
+        const QJsonArray stunPub = myStun.value(QStringLiteral("public_ip")).toArray();
+        for (const QJsonValue &pv : stunPub) {
+            const QString s = pv.toString().trimmed();
+            if (!s.isEmpty()) {
+                publicIps.append(s);
+                if (s.contains(QLatin1Char(':'))) publicV6Addrs.append(s);
+            }
+        }
+
+        // 收集可达监听端口与局域网/公网 IPv6 候选 URI, 经信令同步实现无中继直连
+        int udpPort = 0;
+        int tcpPort = 0;
+        const QJsonArray listenersArr = myInfo.value(QStringLiteral("listeners")).toArray();
+        for (const QJsonValue &lv : listenersArr) {
+            const QString uStr = lv.isObject()
+                ? lv.toObject().value(QStringLiteral("url")).toString()
+                : lv.toString();
+            const int lastColon = uStr.lastIndexOf(QLatin1Char(':'));
+            const int port = (lastColon > 0) ? uStr.mid(lastColon + 1).toInt() : 0;
+            if (port <= 0) continue;
+            if (uStr.startsWith(QLatin1String("udp://")) && udpPort == 0) udpPort = port;
+            else if (uStr.startsWith(QLatin1String("tcp://")) && tcpPort == 0) tcpPort = port;
+        }
+        QStringList localEpUris;
+        const QJsonObject ipsObj = myInfo.value(QStringLiteral("ips")).toObject();
+        auto extractIps = [&](const QString &field, bool isV6) {
+            const QJsonArray arr = ipsObj.value(field).toArray();
+            for (const QJsonValue &iv : arr) {
+                QString ipStr;
+                if (iv.isString()) {
+                    ipStr = iv.toString();
+                } else if (iv.isObject()) {
+                    const QJsonObject io = iv.toObject();
+                    if (!isV6) {
+                        const quint32 a = quint32(io.value(QStringLiteral("addr")).toDouble(0));
+                        if (a != 0) {
+                            ipStr = QStringLiteral("%1.%2.%3.%4")
+                                .arg((a >> 24) & 0xFFu).arg((a >> 16) & 0xFFu)
+                                .arg((a >> 8) & 0xFFu).arg(a & 0xFFu);
+                        }
+                    }
+                }
+                if (ipStr.isEmpty() || ipStr.startsWith(QLatin1String("127.")) ||
+                    ipStr.startsWith(QLatin1String("10.144.")) || ipStr == QLatin1String("::1") ||
+                    ipStr.startsWith(QLatin1String("fe80:"))) continue;
+                if (isV6) {
+                    if (udpPort > 0) localEpUris.append(QStringLiteral("udp://[%1]:%2").arg(ipStr).arg(udpPort));
+                } else {
+                    if (udpPort > 0) localEpUris.append(QStringLiteral("udp://%1:%2").arg(ipStr).arg(udpPort));
+                    if (tcpPort > 0) localEpUris.append(QStringLiteral("tcp://%1:%2").arg(ipStr).arg(tcpPort));
+                }
+            }
+        };
+        extractIps(QStringLiteral("interface_ipv4s"), false);
+        extractIps(QStringLiteral("interface_ipv6s"), true);
+        for (const QString &v6 : publicV6Addrs) {
+            if (udpPort > 0) {
+                const QString uri = QStringLiteral("udp://[%1]:%2").arg(v6).arg(udpPort);
+                if (!localEpUris.contains(uri)) localEpUris.append(uri);
+            }
+        }
+        if (localEpUris != m_lastBroadcastEndpoints && !localEpUris.isEmpty()) {
+            m_lastBroadcastEndpoints = localEpUris;
+            QJsonArray epArr;
+            for (const QString &u : localEpUris) epArr.append(u);
+            pushUiEvent(QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("local_endpoints")},
+                {QStringLiteral("uris"), epArr},
+            });
+        }
+
+        QJsonArray peersOut;
+        const QJsonArray pairs = root.value(QStringLiteral("peer_route_pairs")).toArray();
+        for (const QJsonValue &pv : pairs) {
+            const QJsonObject pair = pv.toObject();
+            const QJsonObject route = pair.value(QStringLiteral("route")).toObject();
+            const QJsonObject peer = pair.value(QStringLiteral("peer")).toObject();
+            const QString hostPeer = route.value(QStringLiteral("hostname")).toString();
+            if (hostPeer.isEmpty()) continue;
+
+            const int cost = route.value(QStringLiteral("cost")).toInt(0);
+            const QString routeMode = (cost <= 1) ? QStringLiteral("p2p") : QStringLiteral("relay");
+            const QJsonObject pStun = route.value(QStringLiteral("stun_info")).toObject();
+            const QString pNat = natTypeToString(natValToInt(pStun.value(QStringLiteral("udp_nat_type"))));
+            const QString pVip = formatVirtualIpv4(route.value(QStringLiteral("ipv4_addr")));
+
+            QString proto;
+            int latMs = route.value(QStringLiteral("path_latency")).toInt(-1);
+            double loss = 0.0;
+            qint64 rxBytes = 0;
+            qint64 txBytes = 0;
+            const QJsonArray conns = peer.value(QStringLiteral("conns")).toArray();
+            if (!conns.isEmpty()) {
+                const QJsonObject c0 = conns.first().toObject();
+                const QJsonObject tunnel = c0.value(QStringLiteral("tunnel")).toObject();
+                proto = tunnel.value(QStringLiteral("tunnel_type")).toString();
+                loss = c0.value(QStringLiteral("loss_rate")).toDouble(0.0);
+                const QJsonObject stats = c0.value(QStringLiteral("stats")).toObject();
+                const qint64 latUs = qint64(stats.value(QStringLiteral("latency_us")).toDouble(-1));
+                if (latUs >= 0) latMs = int(latUs / 1000);
+                rxBytes = qint64(stats.value(QStringLiteral("rx_bytes")).toDouble(0));
+                txBytes = qint64(stats.value(QStringLiteral("tx_bytes")).toDouble(0));
+            }
+            peersOut.append(QJsonObject{
+                {QStringLiteral("peerId"), hostPeer},
+                {QStringLiteral("virtualIp"), pVip},
+                {QStringLiteral("routeMode"), routeMode},
+                {QStringLiteral("tunnelProto"), proto},
+                {QStringLiteral("latencyMs"), latMs},
+                {QStringLiteral("lossRate"), loss},
+                {QStringLiteral("natType"), pNat},
+                {QStringLiteral("rxBytes"), rxBytes},
+                {QStringLiteral("txBytes"), txBytes},
+            });
+        }
+
+        EasyTierTransportConfig cfgCopy;
+        {
+            std::lock_guard<std::mutex> lock(m_netMutex);
+            cfgCopy = m_etConfig;
+        }
+        QJsonObject statusObj;
+        statusObj.insert(QStringLiteral("ready"), running);
+        statusObj.insert(QStringLiteral("easytierRunning"), running);
+        statusObj.insert(QStringLiteral("selfVirtualIp"), myVip.isEmpty() ? cfgCopy.selfVirtualIp : myVip);
+        statusObj.insert(QStringLiteral("hostVirtualIp"), cfgCopy.hostVirtualIp);
+        statusObj.insert(QStringLiteral("udpNatType"), udpNat);
+        statusObj.insert(QStringLiteral("tcpNatType"), tcpNat);
+        statusObj.insert(QStringLiteral("publicIps"), publicIps);
+        statusObj.insert(QStringLiteral("error"), errMsg);
+        statusObj.insert(QStringLiteral("peers"), peersOut);
+
+        const QString json = QString::fromUtf8(QJsonDocument(statusObj).toJson(QJsonDocument::Compact));
+        std::lock_guard<std::mutex> lock(m_netStatusMutex);
+        m_cachedNetStatusJson = json;
+    }
+
+    void dispatchIncomingFrame(const QString &fromPeerId, QByteArray &&raw)
+    {
+        if (raw.isEmpty()) return;
+        if (quint8(raw.at(0)) == MsgCursor) {
+            handleCursorFast(raw);
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(m_inMutex);
+            m_inboundQueue.append(InboundPacket{fromPeerId, std::move(raw), false});
+        }
+        pushUiEvent(QJsonObject{{QStringLiteral("type"), QStringLiteral("inbound_ready")}});
+    }
+
+    void runNetworkLoop()
+    {
+        EasyTierApi &api = EasyTierApi::instance();
+        QString loadErr;
+        const bool apiOk = api.ensureLoaded(&loadErr);
+        if (!apiOk) {
+            RPC_LOG("Collab EasyTier load failed: %s", loadErr.toUtf8().constData());
+            pollEasyTierTelemetry(api, false, loadErr);
+            pushUiEvent(QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("transport_error")},
+                {QStringLiteral("error"), loadErr},
+            });
+            return;
+        }
+
+        bool etStarted = false;
+        QString lastEtErr;
+        int listenFd = -1;
+        std::vector<PendingAcceptConn> pendingAccepts;
+        qint64 lastInfoPollMs = 0;
+
+        auto closeAllSockets = [&]() {
+            if (listenFd >= 0) {
+                close(listenFd);
+                listenFd = -1;
+            }
+            for (auto &pa : pendingAccepts) {
+                if (pa.fd >= 0) close(pa.fd);
+            }
+            pendingAccepts.clear();
+            std::vector<QString> droppedPeers;
+            {
+                std::lock_guard<std::mutex> lock(m_netMutex);
+                for (auto cit = m_peerConns.begin(); cit != m_peerConns.end(); ++cit) {
+                    if (cit->fd >= 0) close(cit->fd);
+                }
+                m_peerConns.clear();
+                for (auto pit = m_peers.begin(); pit != m_peers.end(); ++pit) {
+                    if (pit->ctrlOpen) {
+                        pit->ctrlOpen = false;
+                        pit->liveOpen = false;
+                        droppedPeers.push_back(pit.key());
+                    }
+                }
+            }
+            for (const QString &pid : droppedPeers) {
+                pushUiEvent(QJsonObject{
+                    {QStringLiteral("type"), QStringLiteral("peer_p2p_state")},
+                    {QStringLiteral("peerId"), pid},
+                    {QStringLiteral("connected"), false},
+                });
+            }
+        };
+
+        while (!m_stopNetRequested) {
+            bool doRestart = false;
+            EasyTierTransportConfig cfgCopy;
+            bool isHostCopy = false;
+            QString hostPeerCopy;
+            QString selfPeerCopy;
+            QStringList endpointsToAdd;
+
+            {
+                std::lock_guard<std::mutex> lock(m_netMutex);
+                if (m_needRestartEasyTier) {
+                    m_needRestartEasyTier = false;
+                    doRestart = true;
+                }
+                cfgCopy = m_etConfig;
+                isHostCopy = m_isHost;
+                hostPeerCopy = m_hostPeerId;
+                selfPeerCopy = m_selfPeerId;
+                if (!m_pendingRemoteEndpoints.isEmpty()) {
+                    endpointsToAdd.swap(m_pendingRemoteEndpoints);
+                }
+            }
+
+            if (doRestart) {
+                closeAllSockets();
+                api.retainNetworkInstance(nullptr, 0);
+                etStarted = false;
+                m_addedRemoteEndpoints.clear();
+                m_dialRetryCount = 0;
+                m_nextDialMs = 0;
+
+                if (isHostCopy) {
+                    listenFd = openHostLoopbackListener(cfgCopy.hostMeshPort, &m_actualHostMeshPort);
+                    if (listenFd < 0) {
+                        RPC_LOG("Collab Host listener bind failed port=%d errno=%d",
+                                cfgCopy.hostMeshPort, errno);
+                    } else if (m_actualHostMeshPort > 0 && m_actualHostMeshPort != cfgCopy.hostMeshPort) {
+                        cfgCopy.hostMeshPort = m_actualHostMeshPort;
+                        std::lock_guard<std::mutex> lock(m_netMutex);
+                        m_etConfig.hostMeshPort = m_actualHostMeshPort;
+                    }
+                    m_localForwardPort = 0;
+                } else {
+                    m_localForwardPort = allocateFreeLoopbackPort();
+                }
+
+                const QString toml = buildEasyTierToml(cfgCopy, selfPeerCopy, isHostCopy, m_localForwardPort);
+                const QByteArray tomlUtf8 = toml.toUtf8();
+                const int rc = api.runNetworkInstance(tomlUtf8.constData());
+                if (rc == 0) {
+                    etStarted = true;
+                    lastEtErr.clear();
+                    RPC_LOG("EasyTier started inst=%s vip=%s host=%d fwdPort=%d meshPort=%d",
+                            kEasyTierInstanceName,
+                            cfgCopy.selfVirtualIp.toUtf8().constData(),
+                            isHostCopy ? 1 : 0,
+                            m_localForwardPort,
+                            cfgCopy.hostMeshPort);
+                } else {
+                    lastEtErr = api.lastErrorMessage();
+                    RPC_LOG("EasyTier run_network_instance failed: %s", lastEtErr.toUtf8().constData());
+                    pushUiEvent(QJsonObject{
+                        {QStringLiteral("type"), QStringLiteral("transport_error")},
+                        {QStringLiteral("error"), lastEtErr},
+                    });
+                }
+                pollEasyTierTelemetry(api, etStarted, lastEtErr);
+                lastInfoPollMs = QDateTime::currentMSecsSinceEpoch();
+            }
+
+            if (etStarted && !endpointsToAdd.isEmpty() && api.callJsonRpc) {
+                QJsonArray connectors;
+                for (const QString &u : endpointsToAdd) {
+                    if (m_addedRemoteEndpoints.contains(u)) continue;
+                    m_addedRemoteEndpoints.insert(u);
+                    connectors.append(QJsonObject{
+                        {QStringLiteral("action"), QStringLiteral("ADD")},
+                        {QStringLiteral("url"), QJsonObject{{QStringLiteral("url"), u}}},
+                    });
+                }
+                if (!connectors.isEmpty()) {
+                    const QJsonObject rpcPayload{
+                        {QStringLiteral("instance"), QJsonObject{
+                            {QStringLiteral("instance_selector"), QJsonObject{
+                                {QStringLiteral("name"), QLatin1String(kEasyTierInstanceName)}
+                            }}
+                        }},
+                        {QStringLiteral("patch"), QJsonObject{
+                            {QStringLiteral("connectors"), connectors}
+                        }},
+                    };
+                    const QByteArray payloadBytes = QJsonDocument(rpcPayload).toJson(QJsonDocument::Compact);
+                    const char *respPtr = nullptr;
+                    const int rpcRc = api.callJsonRpc(
+                        "api.config.ConfigRpc", "patch_config", nullptr,
+                        payloadBytes.constData(), &respPtr);
+                    if (respPtr) api.freeString(respPtr);
+                    if (rpcRc < 0) {
+                        RPC_LOG("EasyTier PatchConfig connectors warn: %s",
+                                api.lastErrorMessage().toUtf8().constData());
+                    }
+                }
+            }
+
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+
+            // Peer 主动向本地 port_forward 端口拨号连往 Host
+            if (etStarted && !isHostCopy && m_localForwardPort > 0 && !hostPeerCopy.isEmpty()) {
+                bool needDial = false;
+                {
+                    std::lock_guard<std::mutex> lock(m_netMutex);
+                    auto cit = m_peerConns.constFind(hostPeerCopy);
+                    if ((cit == m_peerConns.constEnd() || cit->fd < 0) && now >= m_nextDialMs) {
+                        needDial = true;
+                    }
+                }
+                if (needDial) {
+                    const int sfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+                    if (sfd >= 0) {
+                        configureCollabTcpSocket(sfd);
+                        sockaddr_in dst{};
+                        dst.sin_family = AF_INET;
+                        dst.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                        dst.sin_port = htons(uint16_t(m_localForwardPort));
+                        const int crc = connect(sfd, reinterpret_cast<const sockaddr *>(&dst), sizeof(dst));
+                        if (crc == 0 || errno == EINPROGRESS) {
+                            SocketPeerConn conn;
+                            conn.fd = sfd;
+                            conn.connecting = (crc != 0);
+                            conn.handshakeDone = false;
+                            conn.connectStartedMs = now;
+                            conn.handshakeDeadlineMs = now + 5000;
+                            if (!conn.connecting) {
+                                enqueueFrameToConn(conn, buildHelloPacket(false), true);
+                            }
+                            std::lock_guard<std::mutex> lock(m_netMutex);
+                            m_peerConns.insert(hostPeerCopy, std::move(conn));
+                        } else {
+                            close(sfd);
+                            m_dialRetryCount++;
+                            m_nextDialMs = now + qMin<qint64>(3000, 400LL * m_dialRetryCount);
+                        }
+                    }
+                }
+            }
+
+            // 构建 pollfd 列表
+            std::vector<pollfd> pfds;
+            std::vector<QString> pfdPeerKeys;
+            std::vector<int> pfdKind; // 0=wake, 1=listen, 2=pending, 3=peerConn
+
+            if (m_wakeFd >= 0) {
+                pfds.push_back(pollfd{m_wakeFd, POLLIN, 0});
+                pfdPeerKeys.push_back(QString());
+                pfdKind.push_back(0);
+            }
+            if (isHostCopy && listenFd >= 0) {
+                pfds.push_back(pollfd{listenFd, POLLIN, 0});
+                pfdPeerKeys.push_back(QString());
+                pfdKind.push_back(1);
+            }
+            for (size_t i = 0; i < pendingAccepts.size(); ++i) {
+                pfds.push_back(pollfd{pendingAccepts[i].fd, POLLIN, 0});
+                pfdPeerKeys.push_back(QString::number(i));
+                pfdKind.push_back(2);
+            }
+            {
+                std::lock_guard<std::mutex> lock(m_netMutex);
+                for (auto cit = m_peerConns.constBegin(); cit != m_peerConns.constEnd(); ++cit) {
+                    if (cit->fd < 0) continue;
+                    short ev = POLLIN;
+                    if (cit->connecting || cit->hasCurTx || !cit->hiTx.empty() || !cit->loTx.empty()) {
+                        ev |= POLLOUT;
+                    }
+                    pfds.push_back(pollfd{cit->fd, ev, 0});
+                    pfdPeerKeys.push_back(cit.key());
+                    pfdKind.push_back(3);
+                }
+            }
+
+            const int prc = poll(pfds.data(), nfds_t(pfds.size()), 50);
+            const qint64 afterPollMs = QDateTime::currentMSecsSinceEpoch();
+
+            if (prc > 0) {
+                for (size_t i = 0; i < pfds.size(); ++i) {
+                    const short rev = pfds[i].revents;
+                    if (rev == 0) continue;
+                    const int kind = pfdKind[i];
+
+                    if (kind == 0) {
+                        uint64_t dummy = 0;
+                        while (read(m_wakeFd, &dummy, sizeof(dummy)) > 0) {}
+                    } else if (kind == 1) {
+                        for (;;) {
+                            const int afd = accept4(listenFd, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+                            if (afd < 0) break;
+                            configureCollabTcpSocket(afd);
+                            if (pendingAccepts.size() >= 64) {
+                                close(afd);
+                                continue;
+                            }
+                            PendingAcceptConn pa;
+                            pa.fd = afd;
+                            pa.acceptedAtMs = afterPollMs;
+                            pendingAccepts.push_back(std::move(pa));
+                        }
+                    } else if (kind == 2) {
+                        const int targetFd = pfds[i].fd;
+                        auto it = std::find_if(pendingAccepts.begin(), pendingAccepts.end(),
+                                               [targetFd](const PendingAcceptConn &p) { return p.fd == targetFd; });
+                        if (it == pendingAccepts.end()) continue;
+                        std::vector<QByteArray> frames;
+                        const int rc = (rev & (POLLERR | POLLHUP))
+                            ? -1
+                            : drainSocketFrames(it->fd, it->rx, frames);
+                        if (rc < 0) {
+                            close(it->fd);
+                            pendingAccepts.erase(it);
+                            continue;
+                        }
+                        if (!frames.empty()) {
+                            QString pid;
+                            if (!extractHelloPeerId(frames[0], &pid) || pid == selfPeerCopy) {
+                                close(it->fd);
+                                pendingAccepts.erase(it);
+                                continue;
+                            }
+                            SocketPeerConn newConn;
+                            newConn.fd = it->fd;
+                            newConn.handshakeDone = true;
+                            newConn.rx = std::move(it->rx);
+                            pendingAccepts.erase(it);
+                            enqueueFrameToConn(newConn, buildHelloPacket(false), true);
+                            {
+                                std::lock_guard<std::mutex> lock(m_netMutex);
+                                auto oldIt = m_peerConns.find(pid);
+                                if (oldIt != m_peerConns.end()) {
+                                    if (oldIt->fd >= 0) close(oldIt->fd);
+                                    m_peerConns.erase(oldIt);
+                                }
+                                m_peerConns.insert(pid, std::move(newConn));
+                                PeerLink &link = m_peers[pid];
+                                if (link.peerId.isEmpty()) {
+                                    link.peerId = pid;
+                                    link.name = pid;
+                                }
+                                link.ctrlOpen = true;
+                                link.liveOpen = true;
+                                link.ctrlOpenedAtMs = afterPollMs;
+                                link.lastSnapshotReqAtMs = afterPollMs;
+                            }
+                            pushUiEvent(QJsonObject{
+                                {QStringLiteral("type"), QStringLiteral("peer_p2p_state")},
+                                {QStringLiteral("peerId"), pid},
+                                {QStringLiteral("connected"), true},
+                            });
+                            for (QByteArray &fr : frames) {
+                                dispatchIncomingFrame(pid, std::move(fr));
+                            }
+                        }
+                    } else if (kind == 3) {
+                        const QString &pid = pfdPeerKeys[i];
+                        bool dropConn = false;
+                        bool emitConnected = false;
+                        bool emitDisconnected = false;
+                        std::vector<QByteArray> frames;
+
+                        {
+                            std::lock_guard<std::mutex> lock(m_netMutex);
+                            auto cit = m_peerConns.find(pid);
+                            if (cit == m_peerConns.end() || cit->fd != pfds[i].fd) continue;
+
+                            if (rev & POLLOUT) {
+                                if (cit->connecting) {
+                                    int soErr = 0;
+                                    socklen_t slen = sizeof(soErr);
+                                    if (getsockopt(cit->fd, SOL_SOCKET, SO_ERROR, &soErr, &slen) != 0 || soErr != 0) {
+                                        dropConn = true;
+                                    } else {
+                                        cit->connecting = false;
+                                        enqueueFrameToConn(*cit, buildHelloPacket(false), true);
+                                    }
+                                }
+                                if (!dropConn && !cit->connecting) {
+                                    if (flushSocketTx(*cit) < 0) {
+                                        dropConn = true;
+                                    }
+                                }
+                            }
+                            if (!dropConn && (rev & POLLIN)) {
+                                if (drainSocketFrames(cit->fd, cit->rx, frames) < 0) {
+                                    dropConn = true;
+                                } else if (!frames.empty() && !cit->handshakeDone) {
+                                    cit->handshakeDone = true;
+                                    PeerLink &link = m_peers[pid];
+                                    if (link.peerId.isEmpty()) {
+                                        link.peerId = pid;
+                                        link.name = pid;
+                                        link.isHostPeer = (pid == hostPeerCopy);
+                                    }
+                                    link.ctrlOpen = true;
+                                    link.liveOpen = true;
+                                    link.ctrlOpenedAtMs = afterPollMs;
+                                    link.lastSnapshotReqAtMs = afterPollMs;
+                                    m_dialRetryCount = 0;
+                                    emitConnected = true;
+                                }
+                            }
+                            if (!dropConn && (rev & (POLLERR | POLLHUP)) && frames.empty()) {
+                                dropConn = true;
+                            }
+                            if (dropConn) {
+                                if (cit->fd >= 0) close(cit->fd);
+                                m_peerConns.erase(cit);
+                                auto lit = m_peers.find(pid);
+                                if (lit != m_peers.end() && lit->ctrlOpen) {
+                                    lit->ctrlOpen = false;
+                                    lit->liveOpen = false;
+                                    emitDisconnected = true;
+                                }
+                                if (!isHostCopy && pid == hostPeerCopy) {
+                                    m_dialRetryCount++;
+                                    m_nextDialMs = afterPollMs + qMin<qint64>(3000, 400LL * m_dialRetryCount);
+                                }
+                            }
+                        }
+
+                        if (emitConnected) {
+                            pushUiEvent(QJsonObject{
+                                {QStringLiteral("type"), QStringLiteral("peer_p2p_state")},
+                                {QStringLiteral("peerId"), pid},
+                                {QStringLiteral("connected"), true},
+                            });
+                        }
+                        for (QByteArray &fr : frames) {
+                            dispatchIncomingFrame(pid, std::move(fr));
+                        }
+                        if (emitDisconnected) {
+                            pushUiEvent(QJsonObject{
+                                {QStringLiteral("type"), QStringLiteral("peer_p2p_state")},
+                                {QStringLiteral("peerId"), pid},
+                                {QStringLiteral("connected"), false},
+                            });
+                        }
+                    }
+                }
+            }
+
+            // 清理超时的未认证 pending 连接以及 Peer 端等待 MsgHello 超时的连接
+            for (auto it = pendingAccepts.begin(); it != pendingAccepts.end();) {
+                if (afterPollMs - it->acceptedAtMs > 10000) {
+                    close(it->fd);
+                    it = pendingAccepts.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            if (!isHostCopy && !hostPeerCopy.isEmpty()) {
+                bool handshakeTimedOut = false;
+                bool hadOpen = false;
+                {
+                    std::lock_guard<std::mutex> lock(m_netMutex);
+                    auto cit = m_peerConns.find(hostPeerCopy);
+                    if (cit != m_peerConns.end() && !cit->handshakeDone &&
+                        cit->handshakeDeadlineMs > 0 && afterPollMs > cit->handshakeDeadlineMs) {
+                        close(cit->fd);
+                        m_peerConns.erase(cit);
+                        auto lit = m_peers.find(hostPeerCopy);
+                        if (lit != m_peers.end() && lit->ctrlOpen) {
+                            lit->ctrlOpen = false;
+                            lit->liveOpen = false;
+                            hadOpen = true;
+                        }
+                        m_dialRetryCount++;
+                        m_nextDialMs = afterPollMs + qMin<qint64>(3000, 500LL * m_dialRetryCount);
+                        handshakeTimedOut = true;
+                    }
+                }
+                if (handshakeTimedOut && hadOpen) {
+                    pushUiEvent(QJsonObject{
+                        {QStringLiteral("type"), QStringLiteral("peer_p2p_state")},
+                        {QStringLiteral("peerId"), hostPeerCopy},
+                        {QStringLiteral("connected"), false},
+                    });
+                }
+            }
+
+            if (afterPollMs - lastInfoPollMs >= 1500) {
+                lastInfoPollMs = afterPollMs;
+                pollEasyTierTelemetry(api, etStarted, lastEtErr);
+            }
+        }
+
+        closeAllSockets();
+        if (etStarted) {
+            api.retainNetworkInstance(nullptr, 0);
         }
     }
 
@@ -1498,240 +2657,6 @@ private:
         m_uiEvents.append(raw);
     }
 
-    std::shared_ptr<rtc::PeerConnection> ensurePeerConnection(const QString &remotePeerId, bool initiateOffer)
-    {
-        std::shared_ptr<rtc::PeerConnection> existingPc;
-        {
-            std::lock_guard<std::mutex> lock(m_netMutex);
-            auto it = m_peers.find(remotePeerId);
-            if (it != m_peers.end() && it->pc) {
-                const auto st = it->pc->state();
-                if (st != rtc::PeerConnection::State::Closed && st != rtc::PeerConnection::State::Failed) {
-                    return it->pc;
-                }
-                it->pc->resetCallbacks();
-                it->pc.reset();
-                it->ctrl.reset();
-                it->live.reset();
-                it->ctrlOpen = false;
-                it->liveOpen = false;
-            }
-        }
-
-        rtc::Configuration cfg;
-        parseIceServers(m_iceServersJson, cfg);
-        cfg.maxMessageSize = size_t(16 * 1024 * 1024);
-
-        std::shared_ptr<rtc::PeerConnection> pc;
-        try {
-            pc = std::make_shared<rtc::PeerConnection>(cfg);
-        } catch (const std::exception &e) {
-            RPC_LOG("Collab PeerConnection create failed: %s", e.what());
-            return nullptr;
-        }
-
-        pc->onLocalDescription([this, remotePeerId](rtc::Description desc) {
-            const char *t = "offer";
-            if (desc.type() == rtc::Description::Type::Answer) t = "answer";
-            else if (desc.type() == rtc::Description::Type::Pranswer) t = "pranswer";
-            pushUiEvent(QJsonObject{
-                {"type", QStringLiteral("signal_out")},
-                {"to", remotePeerId},
-                {"payload", QJsonObject{
-                    {"type", QString::fromLatin1(t)},
-                    {"sdp", QString::fromStdString(std::string(desc))},
-                }},
-            });
-        });
-
-        pc->onLocalCandidate([this, remotePeerId](rtc::Candidate cand) {
-            pushUiEvent(QJsonObject{
-                {"type", QStringLiteral("signal_out")},
-                {"to", remotePeerId},
-                {"payload", QJsonObject{
-                    {"candidate", QString::fromStdString(cand.candidate())},
-                    {"sdpMid", QString::fromStdString(cand.mid())},
-                }},
-            });
-        });
-
-        pc->onStateChange([this, remotePeerId](rtc::PeerConnection::State st) {
-            const qint64 now = QDateTime::currentMSecsSinceEpoch();
-            {
-                std::lock_guard<std::mutex> lock(m_netMutex);
-                auto it = m_peers.find(remotePeerId);
-                if (it != m_peers.end()) {
-                    if (st == rtc::PeerConnection::State::Connected) {
-                        it->disconnectedAtMs = 0;
-                        it->retryCount = 0;
-                    } else if (st == rtc::PeerConnection::State::Disconnected) {
-                        if (it->disconnectedAtMs == 0) it->disconnectedAtMs = now;
-                    }
-                }
-            }
-            const bool isConnected = (st == rtc::PeerConnection::State::Connected);
-            const bool isFailed = (st == rtc::PeerConnection::State::Failed ||
-                                   st == rtc::PeerConnection::State::Closed ||
-                                   st == rtc::PeerConnection::State::Disconnected);
-            if (isConnected || isFailed) {
-                pushUiEvent(QJsonObject{
-                    {"type", QStringLiteral("peer_p2p_state")},
-                    {"peerId", remotePeerId},
-                    {"connected", isConnected},
-                });
-            }
-        });
-
-        pc->onDataChannel([this, remotePeerId](std::shared_ptr<rtc::DataChannel> dc) {
-            if (!dc) return;
-            const std::string lbl = dc->label();
-            const bool isLive = (lbl == "collab-live");
-            bindDataChannel(remotePeerId, dc, isLive);
-        });
-
-        {
-            std::lock_guard<std::mutex> lock(m_netMutex);
-            PeerLink &link = m_peers[remotePeerId];
-            link.peerId = remotePeerId;
-            link.pc = pc;
-            link.initiatedByUs = initiateOffer;
-            link.attemptStartedAtMs = QDateTime::currentMSecsSinceEpoch();
-            link.disconnectedAtMs = 0;
-            link.ctrlOpenedAtMs = 0;
-            link.lastSnapshotReqAtMs = 0;
-            link.remoteDescriptionSet = false;
-            link.pendingRemoteCandidates.clear();
-        }
-
-        if (initiateOffer) {
-            try {
-                auto ctrlDc = pc->createDataChannel("collab-ctrl");
-                rtc::DataChannelInit liveInit;
-                liveInit.reliability.unordered = true;
-                liveInit.reliability.maxRetransmits = 0;
-                auto liveDc = pc->createDataChannel("collab-live", liveInit);
-                bindDataChannel(remotePeerId, ctrlDc, false);
-                bindDataChannel(remotePeerId, liveDc, true);
-            } catch (const std::exception &e) {
-                RPC_LOG("Collab createDataChannel error: %s", e.what());
-            }
-        }
-        return pc;
-    }
-
-    void bindDataChannel(const QString &remotePeerId, std::shared_ptr<rtc::DataChannel> dc, bool isLive)
-    {
-        if (!dc) return;
-        {
-            std::lock_guard<std::mutex> lock(m_netMutex);
-            PeerLink &link = m_peers[remotePeerId];
-            if (isLive) link.live = dc;
-            else link.ctrl = dc;
-        }
-
-        std::weak_ptr<rtc::DataChannel> dcWeak(dc);
-        dc->onOpen([this, remotePeerId, isLive, dcWeak]() {
-            auto dcPtr = dcWeak.lock();
-            if (!m_active || !dcPtr) return;
-            bool shouldSendHello = false;
-            bool pushConnected = false;
-            const qint64 now = QDateTime::currentMSecsSinceEpoch();
-            {
-                std::lock_guard<std::mutex> lock(m_netMutex);
-                auto it = m_peers.find(remotePeerId);
-                if (it != m_peers.end()) {
-                    const auto &currentDc = isLive ? it->live : it->ctrl;
-                    if (currentDc != dcPtr) return;
-                    if (isLive) {
-                        it->liveOpen = true;
-                    } else {
-                        it->ctrlOpen = true;
-                        it->retryCount = 0;
-                        it->disconnectedAtMs = 0;
-                        it->ctrlOpenedAtMs = now;
-                        it->lastSnapshotReqAtMs = now;
-                        shouldSendHello = true;
-                        pushConnected = true;
-                    }
-                }
-            }
-            if (pushConnected) {
-                pushUiEvent(QJsonObject{
-                    {"type", QStringLiteral("peer_p2p_state")},
-                    {"peerId", remotePeerId},
-                    {"connected", true},
-                });
-            }
-            if (shouldSendHello) {
-                QByteArray hello = packMsgHeader(MsgHello);
-                QDataStream ds(&hello, QIODevice::Append);
-                ds.setByteOrder(QDataStream::LittleEndian);
-                writeUtf8(ds, m_selfPeerId);
-                writeUtf8(ds, m_selfName);
-                ds << kCollabProtoVersion << m_lastAppliedSeq << quint8(m_hasLoadedSnapshot ? 0 : 1);
-                sendBytesToPeer(remotePeerId, hello, false);
-            }
-        });
-
-        auto handleChannelDrop = [this, remotePeerId, isLive](const std::shared_ptr<rtc::DataChannel> &dcPtr) {
-            if (!m_active || !dcPtr) return;
-            bool pushDisconnected = false;
-            const qint64 now = QDateTime::currentMSecsSinceEpoch();
-            {
-                std::lock_guard<std::mutex> lock(m_netMutex);
-                auto it = m_peers.find(remotePeerId);
-                if (it != m_peers.end()) {
-                    const auto &currentDc = isLive ? it->live : it->ctrl;
-                    if (currentDc != dcPtr) return;
-                    if (isLive) {
-                        it->liveOpen = false;
-                    } else {
-                        it->ctrlOpen = false;
-                        it->ctrlOpenedAtMs = 0;
-                        if (it->disconnectedAtMs == 0) it->disconnectedAtMs = now;
-                        pushDisconnected = true;
-                    }
-                }
-            }
-            if (pushDisconnected) {
-                pushUiEvent(QJsonObject{
-                    {"type", QStringLiteral("peer_p2p_state")},
-                    {"peerId", remotePeerId},
-                    {"connected", false},
-                });
-            }
-        };
-
-        dc->onClosed([handleChannelDrop, dcWeak]() {
-            handleChannelDrop(dcWeak.lock());
-        });
-
-        dc->onError([handleChannelDrop, remotePeerId, isLive, dcWeak](rtc::string err) {
-            RPC_LOG("Collab dc error from=%s live=%d: %s",
-                    remotePeerId.toUtf8().constData(), isLive ? 1 : 0, err.c_str());
-            handleChannelDrop(dcWeak.lock());
-        });
-
-        dc->onMessage([this, remotePeerId, isLive](rtc::message_variant data) {
-            if (!m_active) return;
-            if (!std::holds_alternative<rtc::binary>(data)) return;
-            const rtc::binary &bin = std::get<rtc::binary>(data);
-            if (bin.empty()) return;
-
-            QByteArray raw(reinterpret_cast<const char *>(bin.data()), int(bin.size()));
-            // 高频光标直接在网络回调更新最新坐标, 不堆积进引擎主通道
-            if (isLive && quint8(raw.at(0)) == MsgCursor) {
-                handleCursorFast(raw);
-                return;
-            }
-            {
-                std::lock_guard<std::mutex> lock(m_inMutex);
-                m_inboundQueue.append(InboundPacket{remotePeerId, std::move(raw), isLive});
-            }
-            pushUiEvent(QJsonObject{{"type", QStringLiteral("inbound_ready")}});
-        });
-    }
-
     void purgeIncomingLargeForPeer(const QString &peerId)
     {
         if (peerId.isEmpty()) return;
@@ -1746,26 +2671,26 @@ private:
         }
     }
 
-    void sendRawOrChunked(const std::shared_ptr<rtc::DataChannel> &dc,
-                          const QByteArray &bytes,
-                          bool isLive,
-                          quint32 sharedMsgId = 0)
+    void queuePacketListLocked(SocketPeerConn &conn,
+                               const QVector<QByteArray> &packets,
+                               bool highPriority)
     {
-        if (!dc || !dc->isOpen() || bytes.isEmpty()) return;
+        for (const QByteArray &pkt : packets) {
+            enqueueFrameToConn(conn, pkt, highPriority);
+        }
+    }
+
+    QVector<QByteArray> splitLargePackets(const QByteArray &bytes, bool isLive, quint32 sharedMsgId = 0)
+    {
+        QVector<QByteArray> out;
+        if (bytes.isEmpty()) return out;
         if (isLive || bytes.size() <= kCtrlLargeChunkBytes) {
-            try {
-                dc->send(reinterpret_cast<const rtc::byte *>(bytes.constData()), size_t(bytes.size()));
-            } catch (const std::exception &e) {
-                RPC_LOG("Collab dc->send error (len=%d, live=%d): %s",
-                        int(bytes.size()), isLive ? 1 : 0, e.what());
-            } catch (...) {
-                RPC_LOG("Collab dc->send unknown error (len=%d, live=%d)",
-                        int(bytes.size()), isLive ? 1 : 0);
-            }
-            return;
+            out.append(bytes);
+            return out;
         }
         const quint32 msgId = (sharedMsgId != 0) ? sharedMsgId : ++m_nextChunkMsgId;
         const quint32 totalChunks = quint32((bytes.size() + kCtrlLargeChunkBytes - 1) / kCtrlLargeChunkBytes);
+        out.reserve(int(totalChunks));
         for (quint32 i = 0; i < totalChunks; ++i) {
             const int offset = int(i) * kCtrlLargeChunkBytes;
             const int len = qMin(kCtrlLargeChunkBytes, bytes.size() - offset);
@@ -1773,52 +2698,44 @@ private:
             QDataStream cds(&cPkt, QIODevice::Append);
             cds.setByteOrder(QDataStream::LittleEndian);
             cds << msgId << totalChunks << i << QByteArray::fromRawData(bytes.constData() + offset, len);
-            try {
-                dc->send(reinterpret_cast<const rtc::byte *>(cPkt.constData()), size_t(cPkt.size()));
-            } catch (const std::exception &e) {
-                RPC_LOG("Collab chunk send error (id=%u, idx=%u/%u): %s",
-                        msgId, i, totalChunks, e.what());
-                break;
-            } catch (...) {
-                RPC_LOG("Collab chunk send unknown error (id=%u, idx=%u/%u)",
-                        msgId, i, totalChunks);
-                break;
-            }
+            out.append(std::move(cPkt));
         }
+        return out;
     }
 
     void sendBytesToPeer(const QString &peerId, const QByteArray &bytes, bool isLive)
     {
         if (bytes.isEmpty()) return;
-        std::shared_ptr<rtc::DataChannel> dc;
+        const QVector<QByteArray> pkts = splitLargePackets(bytes, isLive);
+        const bool hi = isLive || isHighPriorityWireMsg(bytes);
         {
             std::lock_guard<std::mutex> lock(m_netMutex);
-            auto it = m_peers.constFind(peerId);
-            if (it != m_peers.constEnd()) {
-                dc = (isLive && it->liveOpen) ? it->live : (it->ctrlOpen ? it->ctrl : nullptr);
-            }
+            auto cit = m_peerConns.find(peerId);
+            if (cit == m_peerConns.end() || cit->fd < 0) return;
+            queuePacketListLocked(*cit, pkts, hi);
         }
-        sendRawOrChunked(dc, bytes, isLive);
+        wakeNetThread();
     }
 
     void broadcastBytes(const QByteArray &bytes, bool isLive, const QString &excludePeerId = QString())
     {
         if (bytes.isEmpty()) return;
-        QVector<std::shared_ptr<rtc::DataChannel>> targets;
+        const quint32 sharedId = (!isLive && bytes.size() > kCtrlLargeChunkBytes) ? ++m_nextChunkMsgId : 0;
+        const QVector<QByteArray> pkts = splitLargePackets(bytes, isLive, sharedId);
+        const bool hi = isLive || isHighPriorityWireMsg(bytes);
+        bool queuedAny = false;
         {
             std::lock_guard<std::mutex> lock(m_netMutex);
-            for (auto it = m_peers.cbegin(); it != m_peers.cend(); ++it) {
-                if (!excludePeerId.isEmpty() && it.key() == excludePeerId) continue;
-                // 若处于树形转发拓扑, 房主跳过由副节点代发的子节点
-                if (m_isHost && it->isRelayChild) continue;
-                auto dc = (isLive && it->liveOpen) ? it->live : (it->ctrlOpen ? it->ctrl : nullptr);
-                if (dc && dc->isOpen()) targets.append(dc);
+            for (auto cit = m_peerConns.begin(); cit != m_peerConns.end(); ++cit) {
+                if (!excludePeerId.isEmpty() && cit.key() == excludePeerId) continue;
+                auto lit = m_peers.constFind(cit.key());
+                if (m_isHost && lit != m_peers.constEnd() && lit->isRelayChild) continue;
+                if (cit->fd < 0 || !cit->handshakeDone) continue;
+                queuePacketListLocked(*cit, pkts, hi);
+                queuedAny = true;
             }
         }
-        const quint32 sharedId = (!isLive && bytes.size() > kCtrlLargeChunkBytes) ? ++m_nextChunkMsgId : 0;
-        for (const auto &dc : targets) {
-            sendRawOrChunked(dc, bytes, isLive, sharedId);
-        }
+        if (queuedAny) wakeNetThread();
     }
 
     void sendLivePacket(const QByteArray &bytes)
@@ -3015,7 +3932,9 @@ private:
         if (m_isHost || m_hostPeerId.isEmpty()) return false;
         std::lock_guard<std::mutex> lock(m_netMutex);
         auto it = m_peers.constFind(m_hostPeerId);
-        return it != m_peers.constEnd() && it->ctrlOpen && it->ctrl && it->ctrl->isOpen();
+        auto cit = m_peerConns.constFind(m_hostPeerId);
+        return it != m_peers.constEnd() && it->ctrlOpen &&
+               cit != m_peerConns.constEnd() && cit->fd >= 0 && cit->handshakeDone;
     }
 
     void emitUndoReq(quint32 clientOpId, bool isRedo)
@@ -3726,6 +4645,11 @@ QString ReverieCore::collabPollEventsJson()
 QString ReverieCore::collabPollCursorsJson()
 {
     return m_collab ? m_collab->pollCursorsJson() : QStringLiteral("[]");
+}
+
+QString ReverieCore::collabNetStatusJson()
+{
+    return m_collab ? m_collab->netStatusJson() : QStringLiteral("{\"ready\":false,\"easytierRunning\":false}");
 }
 
 QString ReverieCore::collabLayersMetaJson() const

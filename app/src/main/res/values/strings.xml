@@ -4208,7 +4208,13 @@
     <string name="collab_kick">移出</string>
     <string name="collab_host_badge">房主</string>
     <string name="collab_p2p_ready">已直连</string>
-    <string name="collab_p2p_pending">连接中</string>
+    <string name="collab_p2p_pending">打洞连接中</string>
+    <string name="collab_route_p2p">P2P 直连 · %1$s</string>
+    <string name="collab_route_relay">节点中继 · %1$s</string>
+    <string name="collab_nat_easy">P2P 极佳 · %1$s</string>
+    <string name="collab_nat_medium">可穿透 NAT · %1$s</string>
+    <string name="collab_nat_hard">受限对称 NAT · 自动中继</string>
+    <string name="collab_nat_probing">正在探测 NAT 与节点路由…</string>
     <string name="collab_layer_no_permission">当前图层暂不可绘制</string>
     <string name="collab_layer_no_permission_owner">当前图层归属 %1$s，请切换或新建自己的图层</string>
     <string name="collab_layer_owner_toast">该图层归属 %1$s</string>
@@ -4232,8 +4238,8 @@
     <string name="collab_host_migrated_msg">原房主离线，%1$s 已接管房主</string>
     <string name="collab_open_lobby">茶绘</string>
     <string name="collab_lan_discover_tip">输入房主分享的 6 位房间码即可加入同一画布</string>
-    <string name="collab_custom_turn_section">高级网络与自定义 TURN 中继</string>
-    <string name="collab_turn_url_hint">TURN 地址（如 turn:域名:3478，可选）</string>
+    <string name="collab_custom_turn_section">高级网络与自定义 EasyTier 中继节点</string>
+    <string name="collab_turn_url_hint">EasyTier 中继节点（如 tcp://域名:11010，可选）</string>
     <string name="collab_turn_user_hint">TURN 用户名（可选）</string>
     <string name="collab_turn_pass_hint">TURN 密码 / 凭证（可选）</string>
     <string name="collab_reconnect_now">立即重连</string>
