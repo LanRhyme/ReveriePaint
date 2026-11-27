@@ -23,14 +23,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,13 +46,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -111,7 +115,7 @@ import com.reverie.paint.ui.components.ReSectionTitle
 import com.reverie.paint.ui.components.ReSettingRow
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.ReTextButton
-import com.reverie.paint.ui.components.ReTextInput
+import com.reverie.paint.ui.components.verticalFeatherEdge
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.glassBorder
 
@@ -314,12 +318,114 @@ private fun CollabSectionCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(colors.panelHi.copy(alpha = 0.72f))
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.panelHi)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         content = content,
     )
+}
+
+/** 精致结构化单行输入框 (与作者档案页一致的 40dp 高度 + BasicTextField + 细微聚焦描边) */
+@Composable
+internal fun CollabTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    containerColor: Color = Theme.current.panelHi,
+    trailingIcon: (@Composable () -> Unit)? = null,
+) {
+    val colors = Theme.current
+    var isFocused by remember { mutableStateOf(false) }
+    Column(modifier = modifier) {
+        if (!label.isNullOrBlank()) {
+            Text(
+                text = label,
+                color = colors.text,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(containerColor)
+                .border(
+                    width = 1.dp,
+                    color = if (isFocused) colors.accent else colors.subText.copy(alpha = 0.22f),
+                    shape = RoundedCornerShape(8.dp),
+                )
+                .padding(start = 12.dp, end = if (trailingIcon != null) 6.dp else 12.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (value.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            color = colors.subText.copy(alpha = 0.58f),
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    BasicTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        singleLine = true,
+                        visualTransformation = visualTransformation,
+                        keyboardOptions = keyboardOptions,
+                        textStyle = TextStyle(
+                            color = colors.text,
+                            fontSize = 13.5.sp,
+                        ),
+                        cursorBrush = SolidColor(colors.accent),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { isFocused = it.isFocused },
+                    )
+                }
+                trailingIcon?.invoke()
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollabFieldIconButton(
+    icon: Int,
+    contentDescription: String,
+    tint: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.size(16.dp),
+        )
+    }
 }
 
 /**
@@ -450,40 +556,55 @@ internal fun CollabLobbyDialog(
                 )
             }
 
+            val lobbyScroll = rememberScrollState()
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalFeatherEdge(lobbyScroll)
+                    .verticalScroll(lobbyScroll)
+                    .padding(vertical = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (selectedTab != 2 || editingNicknameInline) {
-                    CollabSectionCard {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            ReSectionTitle(stringResource(R.string.collab_nickname))
-                            if (selectedTab == 2) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (selectedTab == 2) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.collab_nickname),
+                                    color = colors.text,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
                                 ReTextButton(
                                     text = stringResource(R.string.common_confirm),
                                     onClick = { editingNicknameInline = false },
                                     fontSize = 11.sp,
                                 )
                             }
+                            CollabTextField(
+                                value = nickname,
+                                onValueChange = { nickname = it.take(24) },
+                                placeholder = stringResource(R.string.collab_nickname_default),
+                            )
+                        } else {
+                            CollabTextField(
+                                label = stringResource(R.string.collab_nickname),
+                                value = nickname,
+                                onValueChange = { nickname = it.take(24) },
+                                placeholder = stringResource(R.string.collab_nickname_default),
+                            )
                         }
-                        ReTextInput(
-                            value = nickname,
-                            onValueChange = { nickname = it.take(24) },
-                            placeholder = stringResource(R.string.collab_nickname_default),
-                        )
                     }
                 } else {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(colors.panelHi.copy(alpha = 0.72f))
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.panelHi)
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -517,6 +638,7 @@ internal fun CollabLobbyDialog(
 
                 when (selectedTab) {
                     0 -> {
+                        HorizontalDivider(color = colors.subText.copy(alpha = 0.14f), thickness = 0.6.dp)
                         CollabCanvasSourceSection(
                             vm = vm,
                             inPainting = inPainting,
@@ -526,8 +648,8 @@ internal fun CollabLobbyDialog(
                             selectedProject = selectedExistingProject,
                             onSelectProject = { selectedProjectPath = it.filePath },
                         )
+                        HorizontalDivider(color = colors.subText.copy(alpha = 0.14f), thickness = 0.6.dp)
                         CollabCreateOptionsContent(
-                            vm = vm,
                             isPublic = isPublic,
                             onPublicChange = { isPublic = it },
                             roomTitle = roomTitle,
@@ -545,9 +667,10 @@ internal fun CollabLobbyDialog(
                         )
                     }
                     1 -> {
-                        CollabSectionCard {
-                            ReSectionTitle(stringResource(R.string.collab_room_code))
-                            ReTextInput(
+                        HorizontalDivider(color = colors.subText.copy(alpha = 0.14f), thickness = 0.6.dp)
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            CollabTextField(
+                                label = stringResource(R.string.collab_room_code),
                                 value = roomCodeInput,
                                 onValueChange = { raw ->
                                     roomCodeInput = CollabTopologyPolicy.normalizeRoomCode(raw).take(6)
@@ -555,7 +678,10 @@ internal fun CollabLobbyDialog(
                                 placeholder = stringResource(R.string.collab_room_code_hint),
                                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
                                 trailingIcon = {
-                                    IconButton(
+                                    CollabFieldIconButton(
+                                        icon = R.drawable.ic_paste,
+                                        contentDescription = stringResource(R.string.collab_paste_code),
+                                        tint = colors.accent,
                                         onClick = {
                                             val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
                                                 as? android.content.ClipboardManager
@@ -571,14 +697,7 @@ internal fun CollabLobbyDialog(
                                                 vm.showActionToast(R.string.collab_paste_code_empty, R.drawable.ic_paste)
                                             }
                                         },
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.ic_paste),
-                                            contentDescription = stringResource(R.string.collab_paste_code),
-                                            tint = colors.accent,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
+                                    )
                                 },
                             )
                             Text(
@@ -586,20 +705,19 @@ internal fun CollabLobbyDialog(
                                 color = colors.subText,
                                 fontSize = 11.sp,
                             )
-                            ReTextInput(
+                            CollabTextField(
+                                label = stringResource(R.string.collab_password_optional),
                                 value = password,
                                 onValueChange = { password = it.take(32) },
                                 placeholder = stringResource(R.string.collab_password_optional),
                                 visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                 trailingIcon = {
-                                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                        Icon(
-                                            painter = painterResource(if (passwordVisible) R.drawable.ic_eye else R.drawable.ic_eye_off),
-                                            contentDescription = stringResource(R.string.collab_toggle_password_vis),
-                                            tint = colors.subText,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
+                                    CollabFieldIconButton(
+                                        icon = if (passwordVisible) R.drawable.ic_eye else R.drawable.ic_eye_off,
+                                        contentDescription = stringResource(R.string.collab_toggle_password_vis),
+                                        tint = colors.subText,
+                                        onClick = { passwordVisible = !passwordVisible },
+                                    )
                                 },
                             )
                         }
@@ -634,6 +752,7 @@ internal fun CollabLobbyDialog(
                 }
 
                 if (selectedTab != 2) {
+                    HorizontalDivider(color = colors.subText.copy(alpha = 0.14f), thickness = 0.6.dp)
                     CollabAdvancedNetworkCard(
                         vm = vm,
                         showAdvanced = showAdvanced,
@@ -803,7 +922,7 @@ private fun CollabCanvasSourceSection(
     }
     val selectedIdx = options.indexOf(canvasSource).coerceAtLeast(0)
 
-    CollabSectionCard {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ReSectionTitle(stringResource(R.string.collab_canvas_source_label))
         LiquidSegmentedBar(
             count = options.size,
@@ -834,7 +953,7 @@ private fun CollabCanvasSourceSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(Dimens.radiusSm))
-                        .background(colors.panel)
+                        .background(colors.panelHi)
                         .border(1.dp, colors.accent.copy(alpha = 0.45f), RoundedCornerShape(Dimens.radiusSm))
                         .padding(horizontal = 10.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -875,10 +994,13 @@ private fun CollabCanvasSourceSection(
                         color = colors.subText,
                         fontSize = 11.sp,
                     )
+                    val listState = rememberLazyListState()
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 188.dp),
+                            .heightIn(max = 188.dp)
+                            .verticalFeatherEdge(listState, edgeHeight = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         items(existingProjects, key = { it.filePath }) { proj ->
@@ -916,7 +1038,7 @@ private fun CollabExistingProjectRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(rowShape)
-            .background(if (selected) colors.accent.copy(alpha = 0.13f) else colors.panel)
+            .background(if (selected) colors.accent.copy(alpha = 0.13f) else colors.panelHi)
             .border(
                 width = if (selected) 1.2.dp else 0.7.dp,
                 color = if (selected) colors.accent else colors.subText.copy(alpha = 0.2f),
@@ -931,7 +1053,7 @@ private fun CollabExistingProjectRow(
             modifier = Modifier
                 .size(36.dp)
                 .clip(RoundedCornerShape(7.dp))
-                .background(colors.panelHi)
+                .background(colors.panel)
                 .border(0.6.dp, colors.subText.copy(alpha = 0.2f), RoundedCornerShape(7.dp)),
             contentAlignment = Alignment.Center,
         ) {
@@ -990,7 +1112,6 @@ private fun CollabExistingProjectRow(
 
 @Composable
 private fun CollabCreateOptionsContent(
-    vm: PaintViewModel,
     isPublic: Boolean,
     onPublicChange: (Boolean) -> Unit,
     roomTitle: String,
@@ -1008,23 +1129,13 @@ private fun CollabCreateOptionsContent(
 ) {
     val colors = Theme.current
 
-    CollabSectionCard {
-        ReSettingRow(
-            label = stringResource(R.string.collab_public_room_toggle),
-            modifier = Modifier
-                .clip(RoundedCornerShape(Dimens.radiusSm))
-                .background(colors.panel),
-        ) {
-            ReSwitch(checked = isPublic, onChecked = onPublicChange)
-        }
-        ReSectionTitle(
-            if (isPublic) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        CollabTextField(
+            label = if (isPublic) {
                 stringResource(R.string.collab_room_title_required_label)
             } else {
                 stringResource(R.string.collab_room_title_optional_label)
             },
-        )
-        ReTextInput(
             value = roomTitle,
             onValueChange = onTitleChange,
             placeholder = stringResource(R.string.collab_room_title_hint),
@@ -1036,33 +1147,30 @@ private fun CollabCreateOptionsContent(
                 fontSize = 11.sp,
             )
         }
-    }
 
-    CollabSectionCard {
-        ReTextInput(
+        CollabTextField(
+            label = stringResource(R.string.collab_password_optional),
             value = password,
             onValueChange = onPasswordChange,
             placeholder = stringResource(R.string.collab_password_optional),
             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
-                IconButton(onClick = onTogglePasswordVis) {
-                    Icon(
-                        painter = painterResource(if (passwordVisible) R.drawable.ic_eye else R.drawable.ic_eye_off),
-                        contentDescription = stringResource(R.string.collab_toggle_password_vis),
-                        tint = colors.subText,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                CollabFieldIconButton(
+                    icon = if (passwordVisible) R.drawable.ic_eye else R.drawable.ic_eye_off,
+                    contentDescription = stringResource(R.string.collab_toggle_password_vis),
+                    tint = colors.subText,
+                    onClick = onTogglePasswordVis,
+                )
             },
         )
-        ReSettingRow(
-            label = stringResource(R.string.collab_require_approval),
-            modifier = Modifier
-                .clip(RoundedCornerShape(Dimens.radiusSm))
-                .background(colors.panel),
-        ) {
+
+        ReSettingRow(label = stringResource(R.string.collab_public_room_toggle)) {
+            ReSwitch(checked = isPublic, onChecked = onPublicChange)
+        }
+        ReSettingRow(label = stringResource(R.string.collab_require_approval)) {
             ReSwitch(checked = requireApproval, onChecked = onRequireApprovalChange)
         }
+
         ReSectionTitle(stringResource(R.string.collab_max_peers))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1077,9 +1185,7 @@ private fun CollabCreateOptionsContent(
                 )
             }
         }
-    }
 
-    CollabSectionCard {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1132,18 +1238,20 @@ private fun CollabAdvancedNetworkCard(
     onTurnChange: (String) -> Unit,
 ) {
     val colors = Theme.current
-    CollabSectionCard {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onToggleShow),
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onToggleShow)
+                .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
                 text = stringResource(R.string.collab_custom_turn_section),
                 color = colors.subText,
-                fontSize = 11.5.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
             )
             Icon(
@@ -1154,22 +1262,19 @@ private fun CollabAdvancedNetworkCard(
             )
         }
         if (showAdvanced) {
-            ReTextInput(
+            CollabTextField(
+                label = stringResource(R.string.collab_signaling_url),
                 value = signalingUrl,
                 onValueChange = onSignalingChange,
                 placeholder = stringResource(R.string.collab_signaling_url),
             )
-            ReTextInput(
+            CollabTextField(
+                label = stringResource(R.string.collab_turn_url_hint),
                 value = turnUrl,
                 onValueChange = onTurnChange,
                 placeholder = stringResource(R.string.collab_turn_url_hint),
             )
-            ReSettingRow(
-                label = stringResource(R.string.collab_kcp_proxy),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(Dimens.radiusSm))
-                    .background(colors.panel),
-            ) {
+            ReSettingRow(label = stringResource(R.string.collab_kcp_proxy)) {
                 ReSwitch(
                     checked = vm.collab.kcpProxyEnabled,
                     onChecked = { vm.setCollabKcpProxyEnabled(it) },
@@ -1180,12 +1285,7 @@ private fun CollabAdvancedNetworkCard(
                 color = colors.subText,
                 fontSize = 11.sp,
             )
-            ReSettingRow(
-                label = stringResource(R.string.collab_force_relay_label),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(Dimens.radiusSm))
-                    .background(colors.panel),
-            ) {
+            ReSettingRow(label = stringResource(R.string.collab_force_relay_label)) {
                 ReSwitch(
                     checked = vm.collab.forceRelayEnabled,
                     onChecked = { vm.setCollabForceRelayEnabled(it) },
@@ -1544,10 +1644,13 @@ internal fun CollabRoomSheet(
                 }
             }
 
+            val lobbyScroll = rememberScrollState()
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalFeatherEdge(lobbyScroll)
+                    .verticalScroll(lobbyScroll)
+                    .padding(vertical = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 when (activeTab) {
@@ -1889,7 +1992,7 @@ internal fun CollabRoomSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            ReTextInput(
+                            CollabTextField(
                                 value = chatDraft,
                                 onValueChange = { chatDraft = it.take(80) },
                                 placeholder = stringResource(R.string.collab_chat_input_hint),
@@ -1924,28 +2027,22 @@ internal fun CollabRoomSheet(
                         if (collab.role == CollabRole.HOST) {
                             CollabSectionCard {
                                 ReSectionTitle(stringResource(R.string.collab_edit_room_section))
-                                ReSettingRow(
-                                    label = stringResource(R.string.collab_public_room_toggle),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(Dimens.radiusSm))
-                                        .background(colors.panel),
-                                ) {
+                                ReSettingRow(label = stringResource(R.string.collab_public_room_toggle)) {
                                     ReSwitch(
                                         checked = editIsPublic,
                                         onChecked = { editIsPublic = it },
                                     )
                                 }
-                                ReSectionTitle(
-                                    if (editIsPublic) {
+                                CollabTextField(
+                                    label = if (editIsPublic) {
                                         stringResource(R.string.collab_room_title_required_label)
                                     } else {
                                         stringResource(R.string.collab_room_title_optional_label)
                                     },
-                                )
-                                ReTextInput(
                                     value = editTitle,
                                     onValueChange = { editTitle = it.take(CollabTopologyPolicy.MAX_ROOM_TITLE_LENGTH) },
                                     placeholder = stringResource(R.string.collab_room_title_hint),
+                                    containerColor = colors.panel,
                                 )
                                 if (editIsPublic && editTitle.isBlank()) {
                                     Text(
@@ -1954,12 +2051,7 @@ internal fun CollabRoomSheet(
                                         fontSize = 11.sp,
                                     )
                                 }
-                                ReSettingRow(
-                                    label = stringResource(R.string.collab_require_approval),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(Dimens.radiusSm))
-                                        .background(colors.panel),
-                                ) {
+                                ReSettingRow(label = stringResource(R.string.collab_require_approval)) {
                                     ReSwitch(
                                         checked = editRequireApproval,
                                         onChecked = { editRequireApproval = it },
@@ -2006,20 +2098,19 @@ internal fun CollabRoomSheet(
                                     )
                                 }
                                 if (editPwMode == 2) {
-                                    ReTextInput(
+                                    CollabTextField(
                                         value = editNewPassword,
                                         onValueChange = { editNewPassword = it.take(32) },
                                         placeholder = stringResource(R.string.collab_edit_password_new_hint),
                                         visualTransformation = if (editNewPwVis) VisualTransformation.None else PasswordVisualTransformation(),
+                                        containerColor = colors.panel,
                                         trailingIcon = {
-                                            IconButton(onClick = { editNewPwVis = !editNewPwVis }) {
-                                                Icon(
-                                                    painter = painterResource(if (editNewPwVis) R.drawable.ic_eye else R.drawable.ic_eye_off),
-                                                    contentDescription = stringResource(R.string.collab_toggle_password_vis),
-                                                    tint = colors.subText,
-                                                    modifier = Modifier.size(18.dp),
-                                                )
-                                            }
+                                            CollabFieldIconButton(
+                                                icon = if (editNewPwVis) R.drawable.ic_eye else R.drawable.ic_eye_off,
+                                                contentDescription = stringResource(R.string.collab_toggle_password_vis),
+                                                tint = colors.subText,
+                                                onClick = { editNewPwVis = !editNewPwVis },
+                                            )
                                         },
                                     )
                                 }
@@ -2231,23 +2322,13 @@ internal fun CollabRoomSheet(
                                     }
                                 }
                             }
-                            ReSettingRow(
-                                label = stringResource(R.string.collab_force_relay_label),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(Dimens.radiusSm))
-                                    .background(colors.panel),
-                            ) {
+                            ReSettingRow(label = stringResource(R.string.collab_force_relay_label)) {
                                 ReSwitch(
                                     checked = collab.forceRelayEnabled,
                                     onChecked = { vm.setCollabForceRelayEnabled(it) },
                                 )
                             }
-                            ReSettingRow(
-                                label = stringResource(R.string.collab_kcp_proxy),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(Dimens.radiusSm))
-                                    .background(colors.panel),
-                            ) {
+                            ReSettingRow(label = stringResource(R.string.collab_kcp_proxy)) {
                                 ReSwitch(
                                     checked = collab.kcpProxyEnabled,
                                     onChecked = { vm.setCollabKcpProxyEnabled(it) },
@@ -2378,14 +2459,12 @@ internal fun CollabEndSaveDialog(
                 lineHeight = 17.sp,
             )
 
-            CollabSectionCard {
-                ReSectionTitle(stringResource(R.string.collab_end_project_name))
-                ReTextInput(
-                    value = projectName,
-                    onValueChange = { projectName = it.take(40) },
-                    placeholder = stringResource(R.string.collab_end_project_name),
-                )
-            }
+            CollabTextField(
+                label = stringResource(R.string.collab_end_project_name),
+                value = projectName,
+                onValueChange = { projectName = it.take(40) },
+                placeholder = stringResource(R.string.collab_end_project_name),
+            )
 
             ReButton(
                 text = stringResource(R.string.collab_end_save_stay),
@@ -2484,23 +2563,25 @@ internal fun CollabCreateConfigDialog(
                 onClose = onDismiss,
             )
 
+            val cfgScroll = rememberScrollState()
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .verticalFeatherEdge(cfgScroll)
+                    .verticalScroll(cfgScroll)
+                    .padding(vertical = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                CollabSectionCard {
-                    ReSectionTitle(stringResource(R.string.collab_nickname))
-                    ReTextInput(
-                        value = nickname,
-                        onValueChange = { nickname = it.take(24) },
-                        placeholder = stringResource(R.string.collab_nickname_default),
-                    )
-                }
+                CollabTextField(
+                    label = stringResource(R.string.collab_nickname),
+                    value = nickname,
+                    onValueChange = { nickname = it.take(24) },
+                    placeholder = stringResource(R.string.collab_nickname_default),
+                )
+
+                HorizontalDivider(color = colors.subText.copy(alpha = 0.14f), thickness = 0.6.dp)
 
                 CollabCreateOptionsContent(
-                    vm = vm,
                     isPublic = isPublic,
                     onPublicChange = { isPublic = it },
                     roomTitle = roomTitle,
@@ -2516,6 +2597,8 @@ internal fun CollabCreateConfigDialog(
                     savePolicy = savePolicy,
                     onSavePolicyChange = { savePolicy = it },
                 )
+
+                HorizontalDivider(color = colors.subText.copy(alpha = 0.14f), thickness = 0.6.dp)
 
                 CollabAdvancedNetworkCard(
                     vm = vm,

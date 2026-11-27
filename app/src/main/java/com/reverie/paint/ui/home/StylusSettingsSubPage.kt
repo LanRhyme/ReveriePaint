@@ -15,8 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import com.reverie.paint.ui.components.ReSettingsScrollContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeDown
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
@@ -107,11 +106,8 @@ internal fun StylusSettingsSubPage(
         stringResource(R.string.stylus_cursor_shape_brush_outline),
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(if (vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null) Color.Transparent else colors.bg)
-            .verticalScroll(rememberScrollState()),
+    ReSettingsScrollContainer(
+        backgroundColor = if (vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null) Color.Transparent else colors.bg,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Column(

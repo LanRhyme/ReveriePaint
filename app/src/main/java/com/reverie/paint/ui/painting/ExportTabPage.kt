@@ -88,6 +88,7 @@ import com.reverie.paint.core.shareAnimation
 import com.reverie.paint.core.showActionToast
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.components.verticalFeatherEdge
 import com.reverie.paint.ui.components.liquidHighlight
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Morandi
@@ -141,10 +142,12 @@ internal fun ExportTabPage(
     val saveRestricted = vm.isCollabFullSaveRestricted()
     val restrictedMsg = stringResource(R.string.collab_own_only_in_room_blocked)
 
+    val scrollState = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
+            .verticalFeatherEdge(scrollState)
+            .verticalScroll(scrollState)
             .padding(vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {

@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,7 +57,6 @@ import com.reverie.paint.model.CollabRole
 import com.reverie.paint.ui.components.Dimens
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.ReTextButton
-import com.reverie.paint.ui.components.ReTextInput
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.glassBorder
 
@@ -419,18 +417,24 @@ internal fun CollabLockedRoomPasswordDialog(
                 PanelCloseButton(onClose = onDismiss)
             }
 
-            ReTextInput(
+            CollabTextField(
                 value = pw,
                 onValueChange = { pw = it.take(32) },
                 placeholder = stringResource(R.string.collab_password_required_hint),
                 visualTransformation = if (pwVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = {
-                    IconButton(onClick = { pwVisible = !pwVisible }) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { pwVisible = !pwVisible },
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Icon(
                             painter = painterResource(if (pwVisible) R.drawable.ic_eye else R.drawable.ic_eye_off),
                             contentDescription = stringResource(R.string.collab_toggle_password_vis),
                             tint = colors.subText,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(16.dp),
                         )
                     }
                 },

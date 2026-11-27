@@ -89,8 +89,16 @@ import com.reverie.paint.R
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.unit.Dp
 import com.reverie.paint.ui.theme.Morandi
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
@@ -2329,6 +2337,104 @@ private class UiSlotNode(
             padH = slot.shadowPadHDp * d,
             padT = slot.shadowPadTopDp * d,
             padB = slot.shadowPadBottomDp * d,
+        )
+    }
+}
+
+/** 为垂直滚动容器添加上下边缘柔焦羽化渐变 (随滚动位置平滑显隐)。 */
+@Composable
+fun Modifier.verticalFeatherEdge(
+    showTop: Boolean,
+    showBottom: Boolean,
+    edgeHeight: Dp = 22.dp,
+): Modifier {
+    val topAlpha by animateFloatAsState(
+        targetValue = if (showTop) 1f else 0f,
+        animationSpec = tween(durationMillis = 160),
+        label = "VerticalFeatherTop",
+    )
+    val bottomAlpha by animateFloatAsState(
+        targetValue = if (showBottom) 1f else 0f,
+        animationSpec = tween(durationMillis = 160),
+        label = "VerticalFeatherBottom",
+    )
+    return this
+        .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+        .drawWithContent {
+            drawContent()
+            val fadePx = minOf(edgeHeight.toPx(), size.height * 0.25f)
+            if (fadePx > 0f && topAlpha > 0.01f) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Black.copy(alpha = 1f - topAlpha), Color.Black),
+                        startY = 0f,
+                        endY = fadePx,
+                    ),
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, fadePx),
+                    blendMode = BlendMode.DstIn,
+                )
+            }
+            if (fadePx > 0f && bottomAlpha > 0.01f) {
+                val startY = (size.height - fadePx).coerceAtLeast(0f)
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Black, Color.Black.copy(alpha = 1f - bottomAlpha)),
+                        startY = startY,
+                        endY = size.height,
+                    ),
+                    topLeft = Offset(0f, startY),
+                    size = Size(size.width, size.height - startY),
+                    blendMode = BlendMode.DstIn,
+                )
+            }
+        }
+}
+
+@Composable
+fun Modifier.verticalFeatherEdge(
+    scrollState: ScrollState,
+    edgeHeight: Dp = 22.dp,
+): Modifier = verticalFeatherEdge(
+    showTop = scrollState.canScrollBackward,
+    showBottom = scrollState.canScrollForward,
+    edgeHeight = edgeHeight,
+)
+
+@Composable
+fun Modifier.verticalFeatherEdge(
+    listState: LazyListState,
+    edgeHeight: Dp = 18.dp,
+): Modifier = verticalFeatherEdge(
+    showTop = listState.canScrollBackward,
+    showBottom = listState.canScrollForward,
+    edgeHeight = edgeHeight,
+)
+
+/**
+ * 带上下边缘柔焦羽化的设置页全屏滚动容器: 将底色绘制于外层容器，确保羽化仅作用于滚动内容而不擦透底色。
+ */
+@Composable
+fun ReSettingsScrollContainer(
+    modifier: Modifier = Modifier,
+    backgroundColor: Color = Color.Transparent,
+    edgeHeight: Dp = 24.dp,
+    horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val scrollState = rememberScrollState()
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(backgroundColor),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalFeatherEdge(scrollState, edgeHeight = edgeHeight)
+                .verticalScroll(scrollState),
+            horizontalAlignment = horizontalAlignment,
+            content = content,
         )
     }
 }

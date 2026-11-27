@@ -14,8 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import com.reverie.paint.ui.components.ReSettingsScrollContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.rounded.Memory
@@ -49,11 +48,8 @@ internal fun DeveloperSettingsSubPage(
     val hasCustomBg = vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(if (compact || hasCustomBg) Color.Transparent else colors.bg)
-            .verticalScroll(rememberScrollState()),
+    ReSettingsScrollContainer(
+        backgroundColor = if (compact || hasCustomBg) Color.Transparent else colors.bg,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Column(

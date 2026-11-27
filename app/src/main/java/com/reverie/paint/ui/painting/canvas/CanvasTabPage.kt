@@ -5,6 +5,7 @@
 package com.reverie.paint.ui.painting.canvas
 
 import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.components.verticalFeatherEdge
 import com.reverie.paint.R
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -285,10 +286,12 @@ internal fun CanvasTabPage(
 
 
 
+    val scrollState = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
+            .verticalFeatherEdge(scrollState)
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // Dynamic Document Info in a sleek Morandi card

@@ -14,8 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import com.reverie.paint.ui.components.ReSettingsScrollContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
 import androidx.compose.material.icons.rounded.AspectRatio
@@ -92,11 +91,8 @@ internal fun GeneralSettingsSubPage(
         200 to stringResource(R.string.settings_step_unit, 200),
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(if (vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null) Color.Transparent else colors.bg)
-            .verticalScroll(rememberScrollState()),
+    ReSettingsScrollContainer(
+        backgroundColor = if (vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null) Color.Transparent else colors.bg,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Column(

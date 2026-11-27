@@ -65,6 +65,7 @@ import com.reverie.paint.model.AuthorProfile
 import com.reverie.paint.model.AuthorProfilePreset
 import com.reverie.paint.ui.components.ReDropdownMenu
 import com.reverie.paint.ui.components.ReDropdownMenuItem
+import com.reverie.paint.ui.components.ReSettingsScrollContainer
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Theme
@@ -99,11 +100,8 @@ internal fun AuthorSettingsSubPage(
         "CC0 1.0 Universal",
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(if (vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null) Color.Transparent else colors.bg)
-            .verticalScroll(rememberScrollState()),
+    ReSettingsScrollContainer(
+        backgroundColor = if (vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null) Color.Transparent else colors.bg,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Column(
