@@ -1445,6 +1445,22 @@
     <string name="tool_customize_enable_all">Enable All</string>
     <string name="tool_customize_disable_all">Disable All</string>
     <string name="tool_customize_drag_reorder">Drag to reorder</string>
+    <string name="tool_customize_reset_icons">Reset Icons</string>
+    <string name="tool_customize_edit_icon">Edit icon</string>
+    <string name="tool_icon_editor_title">Customize Icon</string>
+    <string name="tool_icon_tab_text">Text / Emoji</string>
+    <string name="tool_icon_tab_builtin">Built-in</string>
+    <string name="tool_icon_tab_image">Image</string>
+    <string name="tool_icon_text_hint">Enter 1-2 characters or an emoji</string>
+    <string name="tool_icon_quick_symbols">Quick Symbols</string>
+    <string name="tool_icon_pick_image">Choose from Gallery</string>
+    <string name="tool_icon_replace_image">Replace Image</string>
+    <string name="tool_icon_image_hint">Auto center-cropped to a square icon</string>
+    <string name="tool_icon_image_tint">Tint with theme color</string>
+    <string name="tool_icon_image_tint_sub">Ideal for transparent monochrome PNG icons</string>
+    <string name="tool_icon_image_failed">Failed to import image</string>
+    <string name="tool_icon_restore_default">Restore Default</string>
+    <string name="tool_icon_apply">Apply</string>
 
     <!-- Painting: Color System -->
     <string name="color_pin_hint">Color panel pinned for continuous drawing</string>

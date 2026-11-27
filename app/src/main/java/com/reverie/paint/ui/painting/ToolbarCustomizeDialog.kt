@@ -72,7 +72,7 @@ import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
-import com.reverie.paint.ui.painting.panels.toolIcon
+import com.reverie.paint.ui.painting.panels.ToolIconGlyph
 import com.reverie.paint.ui.painting.panels.displayName
 
 private val rowHeight = 48.dp
@@ -94,6 +94,7 @@ fun ToolbarCustomizeDialog(
     var snapshotBeforeDrag by remember { mutableStateOf<List<Tool>?>(null) }
     var autoScrollSpeed by remember { mutableFloatStateOf(0f) }
     var viewportHeightPx by remember { mutableFloatStateOf(0f) }
+    var editingIconTool by remember { mutableStateOf<Tool?>(null) }
 
     val density = LocalDensity.current
     val rowPx = with(density) { rowHeight.roundToPx() }
@@ -230,6 +231,11 @@ fun ToolbarCustomizeDialog(
                             orderedTools.addAll(defaultList + rest)
                             enabledTools = defaultList.toSet()
                         }
+                        if (vm.customToolIcons.isNotEmpty()) {
+                            QuickActionPill(stringResource(R.string.tool_customize_reset_icons)) {
+                                vm.clearAllCustomToolIcons()
+                            }
+                        }
                         QuickActionPill(stringResource(R.string.tool_customize_enable_all)) {
                             enabledTools = orderedTools.toSet()
                         }
@@ -275,10 +281,12 @@ fun ToolbarCustomizeDialog(
 
                                 ToolRowContent(
                                     tool = tool,
+                                    vm = vm,
                                     isEnabled = isEnabled,
                                     onToggle = { checked ->
                                         enabledTools = if (checked) enabledTools + tool else enabledTools - tool
                                     },
+                                    onEditIcon = { editingIconTool = tool },
                                     isPlaceholder = isBeingDragged,
                                     dragHandleModifier = Modifier.pointerInput(tool.id) {
                                         detectDragGestures(
@@ -364,8 +372,10 @@ fun ToolbarCustomizeDialog(
                                 ) {
                                     ToolRowContent(
                                         tool = draggedTool,
+                                        vm = vm,
                                         isEnabled = draggedTool in enabledTools,
                                         onToggle = {},
+                                        onEditIcon = {},
                                         isPlaceholder = false,
                                         dragHandleModifier = Modifier,
                                         modifier = Modifier.fillMaxSize()
@@ -407,17 +417,28 @@ fun ToolbarCustomizeDialog(
             }
         }
     }
+
+    editingIconTool?.let { targetTool ->
+        ToolIconEditorDialog(
+            tool = targetTool,
+            vm = vm,
+            onDismiss = { editingIconTool = null },
+        )
+    }
 }
 
 @Composable
 private fun ToolRowContent(
     tool: Tool,
+    vm: PaintViewModel,
     isEnabled: Boolean,
     onToggle: (Boolean) -> Unit,
+    onEditIcon: () -> Unit,
     modifier: Modifier = Modifier,
     isPlaceholder: Boolean = false,
     dragHandleModifier: Modifier = Modifier
 ) {
+    val customIcon = vm.customToolIcons[tool.id]
     Row(
         modifier = modifier
             .graphicsLayer {
@@ -443,30 +464,47 @@ private fun ToolRowContent(
             )
         }
 
-        // Row body: clicking anywhere here toggles the tool
-        Row(
+        // Clickable Icon Badge: opens 3-tab icon editor
+        val badgeShape = RoundedCornerShape(9.dp)
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(badgeShape)
+                .background(
+                    if (customIcon != null) Morandi.accent.copy(alpha = 0.14f)
+                    else Morandi.panelHi.copy(alpha = 0.7f),
+                )
+                .border(
+                    width = if (customIcon != null) 1.dp else 0.5.dp,
+                    color = if (customIcon != null) Morandi.accent.copy(alpha = 0.6f) else Morandi.subText.copy(alpha = 0.2f),
+                    shape = badgeShape,
+                )
+                .clickable(onClick = onEditIcon),
+            contentAlignment = Alignment.Center,
+        ) {
+            ToolIconGlyph(
+                tool = tool,
+                customIcon = customIcon,
+                tint = if (isEnabled) Morandi.accent else Morandi.icon,
+                size = 20.dp,
+                contentDescription = stringResource(R.string.tool_customize_edit_icon),
+                resolveFile = { vm.resolveCustomToolIconFile(it) },
+            )
+        }
+
+        // Tool Label: clicking here toggles pin visibility
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
                 .noRippleClickable { onToggle(!isEnabled) },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            contentAlignment = Alignment.CenterStart,
         ) {
-            // Tool Icon
-            Icon(
-                painter = painterResource(toolIcon(tool)),
-                contentDescription = tool.displayName,
-                tint = if (isEnabled) Morandi.accent else Morandi.icon,
-                modifier = Modifier.size(20.dp)
-            )
-
-            // Tool Label
             Text(
                 text = tool.displayName,
                 color = if (isEnabled) Morandi.text else Morandi.subText,
                 fontSize = 14.sp,
                 fontWeight = if (isEnabled) FontWeight.Medium else FontWeight.Normal,
-                modifier = Modifier.weight(1f)
             )
         }
 

@@ -364,11 +364,13 @@ private fun AllToolCell(
                     }
                     .padding(horizontal = 7.dp)
             ) {
-                Icon(
-                    painter = painterResource(toolIcon(t)),
-                    contentDescription = toolLabel,
+                ToolIconGlyph(
+                    tool = t,
+                    customIcon = vm.customToolIcons[t.id],
                     tint = if (isSelected) Morandi.accentHi else Morandi.icon,
-                    modifier = Modifier.size(17.dp)
+                    size = 17.dp,
+                    contentDescription = toolLabel,
+                    resolveFile = { vm.resolveCustomToolIconFile(it) },
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(

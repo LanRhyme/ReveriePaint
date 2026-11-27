@@ -117,6 +117,7 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         com.reverie.paint.core.stylus.FrontBufferProbe.warmUpPreservedContentCheck(appContext)
         // Toolbar choices must restore even when no brush parameter cache has been saved yet.
         loadPinnedTools()
+        loadCustomToolIcons()
         anim.manualKeyframes = prefs.getBoolean(ANIMATION_MANUAL_KEYFRAMES_PREF, false)
         // 性能标尺: 设置项(仅 debug 构建有该入口, 见 PerfHud)或 setprop 任一为真即为开。
         // 用 PerfHud.readPref 而不是直接读偏好 —— 正式版恒 false, 避免残留偏好默默开着标尺。

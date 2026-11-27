@@ -386,6 +386,9 @@ class PaintViewModel : ViewModel() {
     var pinnedTools by mutableStateOf<List<com.reverie.paint.model.Tool>>(DEFAULT_PINNED_TOOLS)
         internal set
 
+    var customToolIcons by mutableStateOf<Map<String, com.reverie.paint.model.CustomToolIcon>>(emptyMap())
+        internal set
+
     var currentToolId by mutableStateOf("brush")
         internal set
 

@@ -1445,6 +1445,22 @@
     <string name="tool_customize_enable_all">全部启用</string>
     <string name="tool_customize_disable_all">全部禁用</string>
     <string name="tool_customize_drag_reorder">拖动排序</string>
+    <string name="tool_customize_reset_icons">重置图标</string>
+    <string name="tool_customize_edit_icon">修改图标</string>
+    <string name="tool_icon_editor_title">自定义图标</string>
+    <string name="tool_icon_tab_text">字符 / 表情</string>
+    <string name="tool_icon_tab_builtin">内置图标</string>
+    <string name="tool_icon_tab_image">相册图片</string>
+    <string name="tool_icon_text_hint">输入 1~2 个字符、符号或表情</string>
+    <string name="tool_icon_quick_symbols">常用符号与表情</string>
+    <string name="tool_icon_pick_image">从相册选择图片</string>
+    <string name="tool_icon_replace_image">更换图片</string>
+    <string name="tool_icon_image_hint">将自动居中裁剪为圆角方形图标</string>
+    <string name="tool_icon_image_tint">跟随主题单色</string>
+    <string name="tool_icon_image_tint_sub">适合透明底单色线稿 PNG 图标</string>
+    <string name="tool_icon_image_failed">导入图片失败</string>
+    <string name="tool_icon_restore_default">恢复默认</string>
+    <string name="tool_icon_apply">应用</string>
 
     <!-- Painting: Color System -->
     <string name="color_pin_hint">已钉住颜色面板，可在画布上自由绘制</string>

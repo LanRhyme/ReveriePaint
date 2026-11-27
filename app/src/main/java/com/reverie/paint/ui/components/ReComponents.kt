@@ -45,6 +45,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.shape.CircleShape
@@ -191,6 +192,71 @@ fun ReIconButton(
             tint = tintColor,
             modifier = Modifier.size(iconSize),
         )
+    }
+}
+
+@Composable
+fun ReIconButton(
+    desc: String,
+    onTap: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    emphasizeColorIconOnSelect: Boolean = false,
+    size: androidx.compose.ui.unit.Dp = 32.dp,
+    tint: Color? = null,
+    iconSize: androidx.compose.ui.unit.Dp = Dimens.icon,
+    enabled: Boolean = true,
+    content: @Composable (tintColor: Color, iconSize: androidx.compose.ui.unit.Dp) -> Unit,
+) {
+    val colors = Theme.current
+    val interaction = remember { MutableInteractionSource() }
+    val baseTint = tint ?: if (selected) colors.accent else colors.icon
+    val tintColor by animateColorAsState(
+        if (enabled) baseTint else baseTint.copy(alpha = 0.32f),
+        spring(dampingRatio = 0.90f, stiffness = 500f),
+    )
+    val targetScale = if (emphasizeColorIconOnSelect) {
+        if (selected) 1.12f else 0.94f
+    } else {
+        1f
+    }
+    val iconScale by animateFloatAsState(
+        targetValue = targetScale,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 460f),
+        label = "icon_select_scale",
+    )
+    val targetAlpha = when {
+        !enabled -> 0.32f
+        emphasizeColorIconOnSelect && !selected -> 0.62f
+        else -> 1f
+    }
+    val iconAlpha by animateFloatAsState(
+        targetValue = targetAlpha,
+        animationSpec = tween(160),
+        label = "icon_select_alpha",
+    )
+    val shape = RoundedCornerShape(8.dp)
+
+    Box(
+        modifier = modifier
+            .defaultMinSize(minWidth = size, minHeight = size)
+            .pressScale(interaction, pressedScale = 0.82f)
+            .liquidLean(interaction, maxOffset = 4.dp)
+            .clip(shape)
+            .liquidHighlight(interaction, Color.White, radius = 20.dp)
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onTap() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier.graphicsLayer {
+                scaleX = iconScale
+                scaleY = iconScale
+                alpha = iconAlpha
+            },
+            contentAlignment = Alignment.Center,
+        ) {
+            content(tintColor, iconSize)
+        }
     }
 }
 

@@ -302,10 +302,11 @@ fun ToolButtonsContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 mainTools.forEach { t ->
+                    val customIcon = vm.customToolIcons[t.id]
+                    val toolName = t.annotatedName(vm)
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxHeight()) {
                         ReIconButton(
-                            toolIcon(t),
-                            t.annotatedName(vm),
+                            desc = toolName,
                             modifier = Modifier.fillMaxHeight().width(32.dp),
                             onTap = {
                                 if (t == Tool.REFERENCE || t == Tool.SHORTCUT || t == Tool.QUICK_BRUSH || t == Tool.QUICK_COLOR || t == Tool.QUICK_OKLCH || t == Tool.QUICK_LAYER || t == Tool.DRAWING_GUIDE || t == Tool.SYMMETRY || t == Tool.PERSPECTIVE) {
@@ -337,7 +338,17 @@ fun ToolButtonsContent(
                                 Tool.PERSPECTIVE -> vm.drawingGuide.mode == GuideMode.PERSPECTIVE
                                 else -> tool == t
                             },
-                        )
+                            emphasizeColorIconOnSelect = customIcon.usesColorSelectEmphasis(),
+                        ) { tintColor, iconSize ->
+                            ToolIconGlyph(
+                                tool = t,
+                                customIcon = customIcon,
+                                tint = tintColor,
+                                size = iconSize,
+                                contentDescription = toolName,
+                                resolveFile = { vm.resolveCustomToolIconFile(it) },
+                            )
+                        }
                     }
                 }
 
@@ -373,10 +384,11 @@ fun ToolButtonsContent(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 mainTools.forEach { t ->
+                    val customIcon = vm.customToolIcons[t.id]
+                    val toolName = t.annotatedName(vm)
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
                         ReIconButton(
-                            toolIcon(t),
-                            t.annotatedName(vm),
+                            desc = toolName,
                             modifier = Modifier.fillMaxWidth().height(32.dp),
                             onTap = {
                                 if (t == Tool.REFERENCE || t == Tool.SHORTCUT || t == Tool.QUICK_BRUSH || t == Tool.QUICK_COLOR || t == Tool.QUICK_OKLCH || t == Tool.QUICK_LAYER || t == Tool.DRAWING_GUIDE || t == Tool.SYMMETRY || t == Tool.PERSPECTIVE) {
@@ -408,7 +420,17 @@ fun ToolButtonsContent(
                                 Tool.PERSPECTIVE -> vm.drawingGuide.mode == GuideMode.PERSPECTIVE
                                 else -> tool == t
                             },
-                        )
+                            emphasizeColorIconOnSelect = customIcon.usesColorSelectEmphasis(),
+                        ) { tintColor, iconSize ->
+                            ToolIconGlyph(
+                                tool = t,
+                                customIcon = customIcon,
+                                tint = tintColor,
+                                size = iconSize,
+                                contentDescription = toolName,
+                                resolveFile = { vm.resolveCustomToolIconFile(it) },
+                            )
+                        }
                         if (tooltipTool == t) {
                             val tooltipOffsetPx = with(LocalDensity.current) { 48.dp.roundToPx() }
                             val popupAlpha = vm.popupPanelOpacity
