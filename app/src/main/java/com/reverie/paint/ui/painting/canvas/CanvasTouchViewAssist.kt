@@ -12,7 +12,6 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
-import com.reverie.paint.ui.painting.canvas.CanvasTouchView.AssistRay
 
 // 拆分自 CanvasTouchView.kt: 同域实现集中于此 (AGENTS.md §6 单文件行数上限)
 
@@ -303,12 +302,408 @@ internal fun CanvasTouchView.resetFisheyeAssist() {
     assistFisheyeA = 0.0
 }
 
+internal fun CanvasTouchView.resetAssistPendingBuffer() {
+    assistPendingCount = 0
+    assistPendingMaxScreenDist = 0f
+    assistPendingFarthestIdx = -1
+}
+
+internal fun CanvasTouchView.resetAssistState() {
+    assistLockedRay = null
+    resetFisheyeAssist()
+    resetAssistPendingBuffer()
+}
+
+private fun CanvasTouchView.appendAssistPendingSample(
+    docX: Float,
+    docY: Float,
+    pressure: Float,
+    tiltX: Float,
+    tiltY: Float,
+    rotation: Float,
+    timeMs: Long,
+    screenDist: Float,
+) {
+    val used = assistPendingCount
+    if (used >= 256) return
+    if (used == assistPendingDocX.size) {
+        val nextCap = (assistPendingDocX.size * 2).coerceAtMost(256)
+        assistPendingDocX = assistPendingDocX.copyOf(nextCap)
+        assistPendingDocY = assistPendingDocY.copyOf(nextCap)
+        assistPendingPressure = assistPendingPressure.copyOf(nextCap)
+        assistPendingTiltX = assistPendingTiltX.copyOf(nextCap)
+        assistPendingTiltY = assistPendingTiltY.copyOf(nextCap)
+        assistPendingRot = assistPendingRot.copyOf(nextCap)
+        assistPendingTime = assistPendingTime.copyOf(nextCap)
+    }
+    assistPendingDocX[used] = docX
+    assistPendingDocY[used] = docY
+    assistPendingPressure[used] = pressure
+    assistPendingTiltX[used] = tiltX
+    assistPendingTiltY[used] = tiltY
+    assistPendingRot[used] = rotation
+    assistPendingTime[used] = timeMs
+    if (screenDist >= assistPendingMaxScreenDist) {
+        assistPendingMaxScreenDist = screenDist
+        assistPendingFarthestIdx = used
+    }
+    assistPendingCount = used + 1
+}
+
+internal fun CanvasTouchView.isFisheyeAssistEligibleForStart(
+    v: PaintViewModel,
+    guide: DrawingGuideConfig,
+    firstPt: Offset,
+): Boolean {
+    if (guide.mode != GuideMode.PERSPECTIVE || !guide.perspectiveFisheye || !guide.assistedDrawing) return false
+    val minDim = minOf(v.docWidth, v.docHeight).toFloat().coerceAtLeast(1f)
+    val centerX = (guide.fisheyeCenterX * v.docWidth).toDouble()
+    val centerY = (guide.fisheyeCenterY * v.docHeight).toDouble()
+    val radius = (guide.fisheyeRadius * minDim).toDouble().coerceAtLeast(1.0)
+    return hypot(firstPt.x.toDouble() - centerX, firstPt.y.toDouble() - centerY) <= radius
+}
+
+internal fun CanvasTouchView.isDirectionalAssistBufferedForStroke(v: PaintViewModel): Boolean {
+    val g = v.drawingGuide
+    if (!AssistedDrawingGeometry.isDirectionalAssistActive(g)) return false
+    if (g.mode == GuideMode.PERSPECTIVE && g.perspectiveFisheye) {
+        return isFisheyeAssistEligibleForStart(v, g, firstDocPos)
+    }
+    return true
+}
+
+internal fun CanvasTouchView.isAssistDirectionLocked(guide: DrawingGuideConfig): Boolean =
+    if (guide.mode == GuideMode.PERSPECTIVE && guide.perspectiveFisheye) {
+        assistFisheyeLocked
+    } else {
+        assistLockedRay != null
+    }
+
+internal fun CanvasTouchView.lockFisheyeDirection(
+    v: PaintViewModel,
+    guide: DrawingGuideConfig,
+    firstPt: Offset,
+    currentPt: Offset,
+): Boolean {
+    val minDim = minOf(v.docWidth, v.docHeight).toFloat().coerceAtLeast(1f)
+    val centerX = (guide.fisheyeCenterX * v.docWidth).toDouble()
+    val centerY = (guide.fisheyeCenterY * v.docHeight).toDouble()
+    val radius = (guide.fisheyeRadius * minDim).toDouble().coerceAtLeast(1.0)
+    if (hypot(firstPt.x.toDouble() - centerX, firstPt.y.toDouble() - centerY) > radius) return false
+
+    val dStart = FisheyeGuideGeometry.directionFromDocument(
+        firstPt.x.toDouble(), firstPt.y.toDouble(), centerX, centerY, radius,
+    )
+    if (guide.fisheyeSnapTarget == FISHEYE_SNAP_CENTER_RAY) {
+        assistFisheyeFamily = 2
+        if (hypot(dStart.first, dStart.second) <= 1e-6) {
+            if (hypot((currentPt.x - firstPt.x).toDouble(), (currentPt.y - firstPt.y).toDouble()) <= 1e-4) {
+                return false
+            }
+            val dCurrent = FisheyeGuideGeometry.directionFromDocument(
+                currentPt.x.toDouble(), currentPt.y.toDouble(), centerX, centerY, radius,
+            )
+            assistFisheyeA = FisheyeGuideGeometry.azimuthOf(dCurrent.first, dCurrent.second)
+        } else {
+            assistFisheyeA = FisheyeGuideGeometry.azimuthOf(dStart.first, dStart.second)
+        }
+        assistFisheyeLocked = true
+        return true
+    }
+
+    if (hypot((currentPt.x - firstPt.x).toDouble(), (currentPt.y - firstPt.y).toDouble()) <= 1e-4) {
+        return false
+    }
+    assistFisheyeFamily = FisheyeGuideGeometry.chooseCurveFamily(
+        dStart.first,
+        dStart.second,
+        dStart.third,
+        (currentPt.x - firstPt.x).toDouble(),
+        (currentPt.y - firstPt.y).toDouble(),
+        centerX,
+        centerY,
+        radius,
+    )
+    assistFisheyeA = if (assistFisheyeFamily == 0) {
+        FisheyeGuideGeometry.horizontalParameter(dStart.first, dStart.second, dStart.third)
+    } else {
+        FisheyeGuideGeometry.verticalParameter(dStart.first, dStart.second, dStart.third)
+    }
+    assistFisheyeLocked = true
+    return true
+}
+
+internal fun CanvasTouchView.projectFisheyePoint(
+    v: PaintViewModel,
+    guide: DrawingGuideConfig,
+    currentPt: Offset,
+): Offset {
+    val minDim = minOf(v.docWidth, v.docHeight).toFloat().coerceAtLeast(1f)
+    val centerX = (guide.fisheyeCenterX * v.docWidth).toDouble()
+    val centerY = (guide.fisheyeCenterY * v.docHeight).toDouble()
+    val radius = (guide.fisheyeRadius * minDim).toDouble().coerceAtLeast(1.0)
+    val d = FisheyeGuideGeometry.directionFromDocument(
+        currentPt.x.toDouble(), currentPt.y.toDouble(), centerX, centerY, radius,
+    )
+    return snapFisheyePoint(d, centerX, centerY, radius)
+}
+
+internal fun CanvasTouchView.projectAssistPointIfLocked(
+    firstPt: Offset,
+    currentPt: Offset,
+): Offset {
+    val v = vm ?: return currentPt
+    val guide = v.drawingGuide
+    if (!AssistedDrawingGeometry.isDirectionalAssistActive(guide)) return currentPt
+    if (guide.mode == GuideMode.PERSPECTIVE && guide.perspectiveFisheye) {
+        return if (assistFisheyeLocked) projectFisheyePoint(v, guide, currentPt) else firstPt
+    }
+    val ray = assistLockedRay ?: return firstPt
+    val projected = AssistedDrawingGeometry.projectPointOntoRay(
+        Point2D(firstPt.x, firstPt.y),
+        ray,
+        Point2D(currentPt.x, currentPt.y),
+    )
+    return Offset(projected.x, projected.y)
+}
+
+private fun CanvasTouchView.flushPendingLinearSamples(
+    v: PaintViewModel,
+    ray: AssistedDrawingGeometry.LockedAssistRay,
+    maxForwardT: Float,
+    docToDpScale: Float,
+    isStylus: Boolean,
+): Offset {
+    val origin = Point2D(firstDocPos.x, firstDocPos.y)
+    var prevForwardT = 0f
+    var lastEmitted = firstDocPos
+    for (i in 0 until assistPendingCount) {
+        val ft = AssistedDrawingGeometry.projectPreLockForwardT(
+            origin = origin,
+            ray = ray,
+            pt = Point2D(assistPendingDocX[i], assistPendingDocY[i]),
+            minForwardT = prevForwardT,
+            maxForwardT = maxForwardT,
+        )
+        if (ft - prevForwardT >= 0.05f) {
+            val sx = firstDocPos.x + ray.dirX * ray.forwardSign * ft
+            val sy = firstDocPos.y + ray.dirY * ray.forwardSign * ft
+            val tiltX = assistPendingTiltX[i].toDouble()
+            val tiltY = assistPendingTiltY[i].toDouble()
+            val rot = assistPendingRot[i].toDouble()
+            resolveStrokeTilt(tiltX, tiltY, sx, sy)
+            v.touchMove(
+                sx,
+                sy,
+                assistPendingPressure[i].toDouble(),
+                assistPendingTime[i],
+                strokeTiltX,
+                strokeTiltY,
+                rot,
+                isStylus = isStylus,
+                docToDpScale = docToDpScale,
+            )
+            prevForwardT = ft
+            lastEmitted = Offset(sx, sy)
+        }
+    }
+    return lastEmitted
+}
+
+private fun CanvasTouchView.flushPendingFisheyeSamples(
+    v: PaintViewModel,
+    guide: DrawingGuideConfig,
+    docToDpScale: Float,
+    isStylus: Boolean,
+): Offset {
+    var lastEmitted = firstDocPos
+    for (i in 0 until assistPendingCount) {
+        val snapped = projectFisheyePoint(v, guide, Offset(assistPendingDocX[i], assistPendingDocY[i]))
+        val tiltX = assistPendingTiltX[i].toDouble()
+        val tiltY = assistPendingTiltY[i].toDouble()
+        val rot = assistPendingRot[i].toDouble()
+        resolveStrokeTilt(tiltX, tiltY, snapped.x, snapped.y)
+        v.touchMove(
+            snapped.x,
+            snapped.y,
+            assistPendingPressure[i].toDouble(),
+            assistPendingTime[i],
+            strokeTiltX,
+            strokeTiltY,
+            rot,
+            isStylus = isStylus,
+            docToDpScale = docToDpScale,
+        )
+        lastEmitted = snapped
+    }
+    return lastEmitted
+}
+
+internal fun CanvasTouchView.processDirectionalAssistSample(
+    v: PaintViewModel,
+    screenX: Float,
+    screenY: Float,
+    docPos: Offset,
+    pressure: Float,
+    rawTiltX: Double,
+    rawTiltY: Double,
+    rawRotation: Double,
+    eventTimeMs: Long,
+    isStylus: Boolean,
+    docToDpScale: Float,
+): Offset? {
+    val guide = v.drawingGuide
+    val isFisheye = guide.mode == GuideMode.PERSPECTIVE && guide.perspectiveFisheye
+    if (isAssistDirectionLocked(guide)) {
+        val snapped = projectAssistPointIfLocked(firstDocPos, docPos)
+        resolveStrokeTilt(rawTiltX, rawTiltY, snapped.x, snapped.y)
+        v.touchMove(
+            snapped.x,
+            snapped.y,
+            pressure.toDouble(),
+            eventTimeMs,
+            strokeTiltX,
+            strokeTiltY,
+            rawRotation,
+            isStylus = isStylus,
+            docToDpScale = docToDpScale,
+        )
+        return snapped
+    }
+
+    val screenDist = hypot(screenX - assistFirstScreenX, screenY - assistFirstScreenY)
+    val thresholdPx = AssistedDrawingGeometry.DIRECTION_LOCK_THRESHOLD_DP * density
+    val docDist = hypot(docPos.x - firstDocPos.x, docPos.y - firstDocPos.y)
+    if (screenDist < thresholdPx || docDist <= 1e-4f) {
+        appendAssistPendingSample(
+            docX = docPos.x,
+            docY = docPos.y,
+            pressure = pressure,
+            tiltX = rawTiltX.toFloat(),
+            tiltY = rawTiltY.toFloat(),
+            rotation = rawRotation.toFloat(),
+            timeMs = eventTimeMs,
+            screenDist = screenDist,
+        )
+        return null
+    }
+
+    if (isFisheye) {
+        if (!lockFisheyeDirection(v, guide, firstDocPos, docPos)) {
+            appendAssistPendingSample(
+                docX = docPos.x,
+                docY = docPos.y,
+                pressure = pressure,
+                tiltX = rawTiltX.toFloat(),
+                tiltY = rawTiltY.toFloat(),
+                rotation = rawRotation.toFloat(),
+                timeMs = eventTimeMs,
+                screenDist = screenDist,
+            )
+            return null
+        }
+        flushPendingFisheyeSamples(v, guide, docToDpScale, isStylus)
+        resetAssistPendingBuffer()
+        val snapped = projectFisheyePoint(v, guide, docPos)
+        resolveStrokeTilt(rawTiltX, rawTiltY, snapped.x, snapped.y)
+        v.touchMove(
+            snapped.x,
+            snapped.y,
+            pressure.toDouble(),
+            eventTimeMs,
+            strokeTiltX,
+            strokeTiltY,
+            rawRotation,
+            isStylus = isStylus,
+            docToDpScale = docToDpScale,
+        )
+        return snapped
+    }
+
+    val ray = AssistedDrawingGeometry.selectLinearAssistRay(
+        guide = guide,
+        firstPt = Point2D(firstDocPos.x, firstDocPos.y),
+        currentPt = Point2D(docPos.x, docPos.y),
+        docWidth = v.docWidth,
+        docHeight = v.docHeight,
+    )
+    if (ray == null) {
+        appendAssistPendingSample(
+            docX = docPos.x,
+            docY = docPos.y,
+            pressure = pressure,
+            tiltX = rawTiltX.toFloat(),
+            tiltY = rawTiltY.toFloat(),
+            rotation = rawRotation.toFloat(),
+            timeMs = eventTimeMs,
+            screenDist = screenDist,
+        )
+        return null
+    }
+
+    assistLockedRay = ray
+    val maxForwardT = maxOf(
+        0f,
+        ((docPos.x - firstDocPos.x) * ray.dirX + (docPos.y - firstDocPos.y) * ray.dirY) * ray.forwardSign,
+    )
+    flushPendingLinearSamples(v, ray, maxForwardT, docToDpScale, isStylus)
+    resetAssistPendingBuffer()
+    val snapped = projectAssistPointIfLocked(firstDocPos, docPos)
+    resolveStrokeTilt(rawTiltX, rawTiltY, snapped.x, snapped.y)
+    v.touchMove(
+        snapped.x,
+        snapped.y,
+        pressure.toDouble(),
+        eventTimeMs,
+        strokeTiltX,
+        strokeTiltY,
+        rawRotation,
+        isStylus = isStylus,
+        docToDpScale = docToDpScale,
+    )
+    return snapped
+}
+
+internal fun CanvasTouchView.flushPendingAssistOnPenUp(
+    v: PaintViewModel,
+    docToDpScale: Float,
+    isStylus: Boolean,
+) {
+    val guide = v.drawingGuide
+    if (assistPendingCount <= 0 || isAssistDirectionLocked(guide)) return
+    if (assistPendingMaxScreenDist < AssistedDrawingGeometry.SHORT_STROKE_COMMIT_DP * density) {
+        resetAssistPendingBuffer()
+        return
+    }
+    val idx = assistPendingFarthestIdx.coerceIn(0, assistPendingCount - 1)
+    val farthest = Offset(assistPendingDocX[idx], assistPendingDocY[idx])
+    if (guide.mode == GuideMode.PERSPECTIVE && guide.perspectiveFisheye) {
+        if (lockFisheyeDirection(v, guide, firstDocPos, farthest)) {
+            currentStrokeDocPos = flushPendingFisheyeSamples(v, guide, docToDpScale, isStylus)
+        }
+        resetAssistPendingBuffer()
+        return
+    }
+    val ray = AssistedDrawingGeometry.selectLinearAssistRay(
+        guide = guide,
+        firstPt = Point2D(firstDocPos.x, firstDocPos.y),
+        currentPt = Point2D(farthest.x, farthest.y),
+        docWidth = v.docWidth,
+        docHeight = v.docHeight,
+    )
+    if (ray != null) {
+        assistLockedRay = ray
+        val maxForwardT = maxOf(
+            0f,
+            ((farthest.x - firstDocPos.x) * ray.dirX + (farthest.y - firstDocPos.y) * ray.dirY) * ray.forwardSign,
+        )
+        currentStrokeDocPos = flushPendingLinearSamples(v, ray, maxForwardT, docToDpScale, isStylus)
+    }
+    resetAssistPendingBuffer()
+}
+
 /**
  * 把当前笔尖投影回锁定的一条鱼眼曲线。
- *
- * 方向向量 -> 反投影到球面 -> 固定 a 的曲线只保留一个自由度 (t) -> 再投影回画布。
- * 按面板选择锁定离起点最近的一条横弧/纵弧，或经过球心的中心射线；
- * 锁定后整笔都投影到该曲线上。
  */
 internal fun CanvasTouchView.applyFisheyeAssist(
     v: PaintViewModel,
@@ -316,60 +711,11 @@ internal fun CanvasTouchView.applyFisheyeAssist(
     firstPt: Offset,
     currentPt: Offset,
 ): Offset {
-    val minDim = minOf(v.docWidth, v.docHeight).toFloat().coerceAtLeast(1f)
-    val centerX = (guide.fisheyeCenterX * v.docWidth).toDouble()
-    val centerY = (guide.fisheyeCenterY * v.docHeight).toDouble()
-    val radius = (guide.fisheyeRadius * minDim).toDouble().coerceAtLeast(1.0)
-    // 半球投影只在圆盘内有定义; 圆盘外起笔不吸附, 避免所有点被钳到边缘。
-    if (hypot(firstPt.x.toDouble() - centerX, firstPt.y.toDouble() - centerY) > radius) return currentPt
-    fun dir(px: Offset) = FisheyeGuideGeometry.directionFromDocument(
-        px.x.toDouble(), px.y.toDouble(), centerX, centerY, radius,
-    )
-    if (!assistFisheyeLocked) {
-        val dStart = dir(firstPt)
-        if (guide.fisheyeSnapTarget == com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY) {
-            assistFisheyeFamily = 2
-            if (hypot(dStart.first, dStart.second) <= 1e-6) {
-                val s0 = docToScreen(firstPt)
-                val s1 = docToScreen(currentPt)
-                if (hypot(s1.x - s0.x, s1.y - s0.y) < 3f * density) return currentPt
-                val dCurrent = dir(currentPt)
-                assistFisheyeA = FisheyeGuideGeometry.azimuthOf(dCurrent.first, dCurrent.second)
-            } else {
-                assistFisheyeA = FisheyeGuideGeometry.azimuthOf(dStart.first, dStart.second)
-            }
-            assistFisheyeLocked = true
-        } else {
-            // 合并后的弧线模式: 起笔后按初始运笔方向选横/纵弧, 参数直接取
-            // 起笔点的连续值 (不量化到显示线), 因此空白区域同样有鱼眼约束,
-            // 且落点不会被拉到邻近的可见参考线上。
-            val s0 = docToScreen(firstPt)
-            val s1 = docToScreen(currentPt)
-            val sdx = s1.x - s0.x
-            val sdy = s1.y - s0.y
-            if (hypot(sdx, sdy) < 3f * density) return currentPt
-            assistFisheyeFamily = FisheyeGuideGeometry.chooseCurveFamily(
-                dStart.first,
-                dStart.second,
-                dStart.third,
-                (currentPt.x - firstPt.x).toDouble(),
-                (currentPt.y - firstPt.y).toDouble(),
-                centerX,
-                centerY,
-                radius,
-            )
-            assistFisheyeA = if (assistFisheyeFamily == 0) {
-                FisheyeGuideGeometry.horizontalParameter(dStart.first, dStart.second, dStart.third)
-            } else {
-                FisheyeGuideGeometry.verticalParameter(dStart.first, dStart.second, dStart.third)
-            }
-            assistFisheyeLocked = true
-        }
+    if (!isFisheyeAssistEligibleForStart(v, guide, firstPt)) return currentPt
+    if (!assistFisheyeLocked && !lockFisheyeDirection(v, guide, firstPt, currentPt)) {
+        return firstPt
     }
-
-    val d = dir(currentPt)
-    val snapped = snapFisheyePoint(d, centerX, centerY, radius)
-    return snapped
+    return projectFisheyePoint(v, guide, currentPt)
 }
 
 internal fun CanvasTouchView.snapFisheyePoint(
@@ -395,119 +741,8 @@ internal fun CanvasTouchView.snapFisheyePoint(
     return Offset(p.x, p.y)
 }
 
-internal fun CanvasTouchView.applyAssistedDrawing(firstPt: Offset, currentPt: Offset): Offset {
-    val v = vm ?: return currentPt
-    val guide = v.drawingGuide
-    if (!guide.assistedDrawing) return currentPt
-    val dx = currentPt.x - firstPt.x
-    val dy = currentPt.y - firstPt.y
-    val dist = hypot(dx, dy)
-    return when (guide.mode) {
-        GuideMode.GRID_2D -> {
-            val locked = assistLockedRay
-            if (locked != null) {
-                return when (locked) {
-                    is AssistRay.Horizontal -> Offset(currentPt.x, locked.y)
-                    is AssistRay.Vertical -> Offset(locked.x, currentPt.y)
-                    else -> currentPt
-                }
-            }
-            if (dist < 4f) return currentPt
-            val isHoriz = abs(dx) >= abs(dy)
-            if (dist >= 8f) {
-                assistLockedRay = if (isHoriz) AssistRay.Horizontal(firstPt.y) else AssistRay.Vertical(firstPt.x)
-            }
-            if (isHoriz) Offset(currentPt.x, firstPt.y) else Offset(firstPt.x, currentPt.y)
-        }
-        GuideMode.ISOMETRIC -> {
-            val locked = assistLockedRay
-            if (locked is AssistRay.Direction) {
-                val dot = dx * locked.dir.x + dy * locked.dir.y
-                return Offset(firstPt.x + locked.dir.x * dot, firstPt.y + locked.dir.y * dot)
-            }
-            if (dist < 4f) return currentPt
-            var bestDir = ISO_DIRS[0]
-            var minError = Float.MAX_VALUE
-            for (dir in ISO_DIRS) {
-                val err = abs(-dx * dir.y + dy * dir.x)
-                if (err < minError) {
-                    minError = err
-                    bestDir = dir
-                }
-            }
-            if (dist >= 8f) {
-                assistLockedRay = AssistRay.Direction(bestDir)
-            }
-            val dot = dx * bestDir.x + dy * bestDir.y
-            Offset(firstPt.x + bestDir.x * dot, firstPt.y + bestDir.y * dot)
-        }
-        GuideMode.PERSPECTIVE -> {
-            if (guide.perspectiveFisheye) {
-                return applyFisheyeAssist(v, guide, firstPt, currentPt)
-            }
-            if (guide.perspective3d) return currentPt
-            val vps = if (guide.perspectiveVanishingPoints.isEmpty()) {
-                listOf(Point2D(v.docWidth * 0.5f, vm?.docHeight?.toFloat()?.times(0.35f) ?: 350f))
-            } else guide.perspectiveVanishingPoints
-
-            if (dist < 4f && assistLockedRay == null) return currentPt
-
-            // 若已锁定射线，直接沿该锁定方向投影
-            val locked = assistLockedRay
-            if (locked != null) {
-                return when (locked) {
-                    is AssistRay.Horizontal -> Offset(currentPt.x, locked.y)
-                    is AssistRay.Vertical -> Offset(locked.x, currentPt.y)
-                    is AssistRay.VanishingPoint -> {
-                        val dot = dx * locked.dir.x + dy * locked.dir.y
-                        Offset(firstPt.x + locked.dir.x * dot, firstPt.y + locked.dir.y * dot)
-                    }
-                    is AssistRay.Direction -> {
-                        val dot = dx * locked.dir.x + dy * locked.dir.y
-                        Offset(firstPt.x + locked.dir.x * dot, firstPt.y + locked.dir.y * dot)
-                    }
-                }
-            }
-
-            // 未锁定时寻找最佳候选射线
-            var bestCandidate = Offset(currentPt.x, firstPt.y)
-            var bestRay: AssistRay = AssistRay.Horizontal(firstPt.y)
-            var minError = abs(dy)
-
-            val vertError = abs(dx)
-            if (vertError < minError) {
-                minError = vertError
-                bestCandidate = Offset(firstPt.x, currentPt.y)
-                bestRay = AssistRay.Vertical(firstPt.x)
-            }
-
-            for (vp in vps) {
-                val vRayX = vp.x - firstPt.x
-                val vRayY = vp.y - firstPt.y
-                val vLen = hypot(vRayX, vRayY)
-                if (vLen > 0.001f) {
-                    val nx = vRayX / vLen
-                    val ny = vRayY / vLen
-                    val dot = dx * nx + dy * ny
-                    val err = abs(dx * (-ny) + dy * nx)
-                    if (err < minError) {
-                        minError = err
-                        bestCandidate = Offset(firstPt.x + nx * dot, firstPt.y + ny * dot)
-                        bestRay = AssistRay.VanishingPoint(vp, Offset(nx, ny))
-                    }
-                }
-            }
-
-            // 运笔超过 8px 判定阈值即刻锁定方向，避免运笔中途跳变
-            if (dist >= 8f) {
-                assistLockedRay = bestRay
-            }
-
-            bestCandidate
-        }
-        else -> currentPt
-    }
-}
+internal fun CanvasTouchView.applyAssistedDrawing(firstPt: Offset, currentPt: Offset): Offset =
+    projectAssistPointIfLocked(firstPt, currentPt)
 
 internal fun CanvasTouchView.checkHitGuideHandle(screenPos: Offset): Boolean {
     val v = vm ?: return false
@@ -619,6 +854,41 @@ internal fun CanvasTouchView.checkHitGuideHandle(screenPos: Offset): Boolean {
             parent?.requestDisallowInterceptTouchEvent(true)
             return true
         }
+    } else if (guide.mode == GuideMode.GRID_2D || guide.mode == GuideMode.ISOMETRIC) {
+        val originDoc = com.reverie.paint.model.DrawingGuideHandleGeometry
+            .gridOriginDocPos(v.docWidth, v.docHeight, guide)
+        val originScreen = docToScreen(Offset(originDoc.x, originDoc.y))
+        if (com.reverie.paint.model.DrawingGuideHandleGeometry.isWithinHitRadius(
+                screenPos.x,
+                screenPos.y,
+                originScreen.x,
+                originScreen.y,
+                com.reverie.paint.model.DrawingGuideHandleGeometry.GRID_HANDLE_HIT_RADIUS_DP,
+                density,
+            )
+        ) {
+            draggingGuideHandleIndex = 104
+            isPendingLongPress = false
+            parent?.requestDisallowInterceptTouchEvent(true)
+            return true
+        }
+        val rotDoc = com.reverie.paint.model.DrawingGuideHandleGeometry
+            .gridRotationHandleDocPos(v.docWidth, v.docHeight, guide)
+        val rotScreen = docToScreen(Offset(rotDoc.x, rotDoc.y))
+        if (com.reverie.paint.model.DrawingGuideHandleGeometry.isWithinHitRadius(
+                screenPos.x,
+                screenPos.y,
+                rotScreen.x,
+                rotScreen.y,
+                com.reverie.paint.model.DrawingGuideHandleGeometry.GRID_HANDLE_HIT_RADIUS_DP,
+                density,
+            )
+        ) {
+            draggingGuideHandleIndex = 105
+            isPendingLongPress = false
+            parent?.requestDisallowInterceptTouchEvent(true)
+            return true
+        }
     }
     return false
 }
@@ -693,6 +963,22 @@ internal fun CanvasTouchView.handleGuideHandleDrag(docPos: Offset): Boolean {
             invalidate()
             true
         }
+        104 -> {
+            val newX = (docPos.x / maxOf(1, v.docWidth)).coerceIn(0f, 1f)
+            val newY = (docPos.y / maxOf(1, v.docHeight)).coerceIn(0f, 1f)
+            v.drawingGuide = g.copy(gridOffsetX = newX, gridOffsetY = newY)
+            invalidate()
+            true
+        }
+        105 -> {
+            val ox = v.docWidth * g.gridOffsetX.coerceIn(0f, 1f)
+            val oy = v.docHeight * g.gridOffsetY.coerceIn(0f, 1f)
+            val rawDeg = atan2(docPos.y - oy, docPos.x - ox) * 180f / PI.toFloat()
+            val snappedDeg = AssistedDrawingGeometry.snapGridRotationHandleDeg(rawDeg)
+            v.drawingGuide = g.copy(gridRotationDeg = snappedDeg)
+            invalidate()
+            true
+        }
         else -> false
     }
 }
@@ -747,128 +1033,25 @@ internal fun CanvasTouchView.computeDynamicGuide(v: PaintViewModel, out: FloatAr
                 if (guide.perspectiveFisheye) return DynamicGuidePainter.KIND_NONE
                 if (guide.perspective3d) return DYNAMIC_GUIDE_ABORT_FRAME
                 val locked = assistLockedRay
-                val dx = currentStrokeDocPos.x - firstDocPos.x
-                val dy = currentStrokeDocPos.y - firstDocPos.y
-                val dist = hypot(dx, dy)
-                if (locked != null || dist >= 6f) {
-                    var bestType = 0 // 0: horizontal, 1: vertical, 2: vp
-                    var bestVp: Point2D? = null
-                    var bestDir = Offset(1f, 0f)
-
-                    if (locked is AssistRay.Horizontal) {
-                        bestType = 0
-                    } else if (locked is AssistRay.Vertical) {
-                        bestType = 1
-                    } else if (locked is AssistRay.VanishingPoint) {
-                        bestType = 2
-                        bestVp = locked.vp
-                        bestDir = locked.dir
-                    } else if (locked is AssistRay.Direction) {
-                        bestType = 2
-                        bestDir = locked.dir
-                    } else {
-                        val vps = if (guide.perspectiveVanishingPoints.isEmpty()) {
-                            listOf(Point2D(v.docWidth * 0.5f, v.docHeight * 0.35f))
-                        } else guide.perspectiveVanishingPoints
-
-                        var minError = abs(dy)
-                        val vertError = abs(dx)
-                        if (vertError < minError) {
-                            minError = vertError
-                            bestType = 1
-                        }
-
-                        for (vp in vps) {
-                            val vRayX = vp.x - firstDocPos.x
-                            val vRayY = vp.y - firstDocPos.y
-                            val vLen = hypot(vRayX, vRayY)
-                            if (vLen > 0.001f) {
-                                val nx = vRayX / vLen
-                                val ny = vRayY / vLen
-                                val err = abs(dx * (-ny) + dy * nx)
-                                if (err < minError) {
-                                    minError = err
-                                    bestType = 2
-                                    bestVp = vp
-                                    bestDir = Offset(nx, ny)
-                                }
-                            }
-                        }
-                    }
-
-                    when (bestType) {
-                        0 -> {
-                            val p1 = docToScreen(Offset(firstDocPos.x - maxExt, firstDocPos.y))
-                            val p2 = docToScreen(Offset(firstDocPos.x + maxExt, firstDocPos.y))
-                            kind = writeGuideSeg(out, p1, p2)
-                        }
-                        1 -> {
-                            val p1 = docToScreen(Offset(firstDocPos.x, firstDocPos.y - maxExt))
-                            val p2 = docToScreen(Offset(firstDocPos.x, firstDocPos.y + maxExt))
-                            kind = writeGuideSeg(out, p1, p2)
-                        }
-                        2 -> {
-                            val p1 = docToScreen(Offset(firstDocPos.x - bestDir.x * maxExt, firstDocPos.y - bestDir.y * maxExt))
-                            val p2 = docToScreen(Offset(firstDocPos.x + bestDir.x * maxExt, firstDocPos.y + bestDir.y * maxExt))
-                            kind = writeGuideSeg(out, p1, p2)
-
-                            if (bestVp != null) {
-                                val vpScreen = docToScreen(Offset(bestVp.x, bestVp.y))
-                                out[4] = vpScreen.x
-                                out[5] = vpScreen.y
-                                kind = DynamicGuidePainter.KIND_LINE_VP
-                            }
-                        }
-                    }
-                }
-            }
-            GuideMode.ISOMETRIC -> {
-                val locked = assistLockedRay
-                val dx = currentStrokeDocPos.x - firstDocPos.x
-                val dy = currentStrokeDocPos.y - firstDocPos.y
-                val dist = hypot(dx, dy)
-                if (locked is AssistRay.Direction || dist >= 6f) {
-                    val dir = if (locked is AssistRay.Direction) {
-                        locked.dir
-                    } else {
-                        var bestDir = ISO_DIRS[0]
-                        var minError = Float.MAX_VALUE
-                        for (d in ISO_DIRS) {
-                            val err = abs(-dx * d.y + dy * d.x)
-                            if (err < minError) {
-                                minError = err
-                                bestDir = d
-                            }
-                        }
-                        bestDir
-                    }
-                    val p1 = docToScreen(Offset(firstDocPos.x - dir.x * maxExt, firstDocPos.y - dir.y * maxExt))
-                    val p2 = docToScreen(Offset(firstDocPos.x + dir.x * maxExt, firstDocPos.y + dir.y * maxExt))
+                if (locked != null) {
+                    val p1 = docToScreen(Offset(firstDocPos.x - locked.dirX * maxExt, firstDocPos.y - locked.dirY * maxExt))
+                    val p2 = docToScreen(Offset(firstDocPos.x + locked.dirX * maxExt, firstDocPos.y + locked.dirY * maxExt))
                     kind = writeGuideSeg(out, p1, p2)
+                    val vp = locked.vanishingPoint
+                    if (vp != null) {
+                        val vpScreen = docToScreen(Offset(vp.x, vp.y))
+                        out[4] = vpScreen.x
+                        out[5] = vpScreen.y
+                        kind = DynamicGuidePainter.KIND_LINE_VP
+                    }
                 }
             }
-            GuideMode.GRID_2D -> {
+            GuideMode.ISOMETRIC, GuideMode.GRID_2D -> {
                 val locked = assistLockedRay
-                val dx = currentStrokeDocPos.x - firstDocPos.x
-                val dy = currentStrokeDocPos.y - firstDocPos.y
-                val dist = hypot(dx, dy)
-                if (locked != null || dist >= 6f) {
-                    val isHoriz = if (locked is AssistRay.Horizontal) {
-                        true
-                    } else if (locked is AssistRay.Vertical) {
-                        false
-                    } else {
-                        abs(dx) >= abs(dy)
-                    }
-                    if (isHoriz) {
-                        val p1 = docToScreen(Offset(firstDocPos.x - maxExt, firstDocPos.y))
-                        val p2 = docToScreen(Offset(firstDocPos.x + maxExt, firstDocPos.y))
-                        kind = writeGuideSeg(out, p1, p2)
-                    } else {
-                        val p1 = docToScreen(Offset(firstDocPos.x, firstDocPos.y - maxExt))
-                        val p2 = docToScreen(Offset(firstDocPos.x, firstDocPos.y + maxExt))
-                        kind = writeGuideSeg(out, p1, p2)
-                    }
+                if (locked != null) {
+                    val p1 = docToScreen(Offset(firstDocPos.x - locked.dirX * maxExt, firstDocPos.y - locked.dirY * maxExt))
+                    val p2 = docToScreen(Offset(firstDocPos.x + locked.dirX * maxExt, firstDocPos.y + locked.dirY * maxExt))
+                    kind = writeGuideSeg(out, p1, p2)
                 }
             }
             else -> Unit

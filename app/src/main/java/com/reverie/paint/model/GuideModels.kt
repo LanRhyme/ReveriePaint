@@ -100,6 +100,9 @@ data class DrawingGuideConfig(
     val mode: GuideMode = GuideMode.OFF,
     val assistedDrawing: Boolean = false,
     val gridSize: Float = 48f,
+    val gridOffsetX: Float = 0.5f, // 归一化网格参考原点 X (0..1)
+    val gridOffsetY: Float = 0.5f, // 归一化网格参考原点 Y (0..1)
+    val gridRotationDeg: Float = 0f, // 网格参考线旋转角度 (0°..180°)
     val opacity: Float = 0.5f,
     val colorHex: String = "#88A0B0",
     val symmetryType: SymmetryType = SymmetryType.VERTICAL,

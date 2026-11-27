@@ -2282,6 +2282,10 @@
     <string name="guide_perspective_ground">地面网格</string>
     <string name="guide_perspective_cube">立体立方体</string>
     <string name="guide_grid_size">网格尺寸</string>
+    <string name="guide_grid_rotation">网格角度</string>
+    <string name="guide_grid_offset_x">位置 X</string>
+    <string name="guide_grid_offset_y">位置 Y</string>
+    <string name="guide_grid_reset">重置位置与角度</string>
     <string name="guide_line_opacity">参考线不透明度</string>
     <string name="guide_tab_spatial">空间参考线</string>
     <string name="guide_tab_quickshape">速创形状</string>

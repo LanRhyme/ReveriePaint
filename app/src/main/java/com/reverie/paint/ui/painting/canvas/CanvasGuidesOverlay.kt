@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.AssistedDrawingGeometry
 import com.reverie.paint.model.FisheyeGuideGeometryCache
 import com.reverie.paint.model.GuideMode
 import com.reverie.paint.model.DrawingGuideHandleGeometry
@@ -29,6 +30,7 @@ import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
 import kotlin.math.PI
 import kotlin.math.atan2
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
@@ -79,31 +81,93 @@ internal fun DrawScope.drawDrawingGuides(
 
                     when (guide.mode) {
                         GuideMode.GRID_2D -> {
-                            val step = (guide.gridSize * (bmp.width.toFloat() / maxOf(1, vm.docWidth))).coerceAtLeast(16f)
-                            var gx = -halfW + (step - (-halfW % step))
-                            while (gx < halfW) {
-                                drawLine(guideCol, Offset(gx, -halfH), Offset(gx, halfH), strokeWidth = gStroke.width)
-                                gx += step
+                            val scX = docW / maxOf(1, vm.docWidth)
+                            val scY = docH / maxOf(1, vm.docHeight)
+                            val step = (guide.gridSize * scX).coerceAtLeast(16f)
+                            val originDoc = DrawingGuideHandleGeometry.gridOriginDocPos(vm.docWidth, vm.docHeight, guide)
+                            val ox = originDoc.x * scX - halfW
+                            val oy = originDoc.y * scY - halfH
+                            val maxRadius = hypot(docW, docH) + step
+                            val axes = AssistedDrawingGeometry.grid2dAxes(guide.gridRotationDeg)
+                            val u = axes[0]
+                            val v = axes[1]
+                            val count = ceil(maxRadius / step).toInt().coerceAtMost(300)
+                            clipRect(left = -halfW, top = -halfH, right = halfW, bottom = halfH) {
+                                for (k in -count..count) {
+                                    val shift = k * step
+                                    val ux = ox + u.x * shift
+                                    val uy = oy + u.y * shift
+                                    drawLine(
+                                        guideCol,
+                                        Offset(ux - v.x * maxRadius, uy - v.y * maxRadius),
+                                        Offset(ux + v.x * maxRadius, uy + v.y * maxRadius),
+                                        strokeWidth = gStroke.width,
+                                    )
+                                    val vx = ox + v.x * shift
+                                    val vy = oy + v.y * shift
+                                    drawLine(
+                                        guideCol,
+                                        Offset(vx - u.x * maxRadius, vy - u.y * maxRadius),
+                                        Offset(vx + u.x * maxRadius, vy + u.y * maxRadius),
+                                        strokeWidth = gStroke.width,
+                                    )
+                                }
                             }
-                            var gy = -halfH + (step - (-halfH % step))
-                            while (gy < halfH) {
-                                drawLine(guideCol, Offset(-halfW, gy), Offset(halfW, gy), strokeWidth = gStroke.width)
-                                gy += step
+                            if (vm.drawingGuidePanelOpen) {
+                                val currentScale = (zoom * fitScale).coerceAtLeast(0.001f)
+                                val originCenter = Offset(ox, oy)
+                                val rotDoc = DrawingGuideHandleGeometry.gridRotationHandleDocPos(vm.docWidth, vm.docHeight, guide)
+                                val rotCenter = Offset(rotDoc.x * scX - halfW, rotDoc.y * scY - halfH)
+                                drawLine(Morandi.accent.copy(alpha = 0.45f), originCenter, rotCenter, strokeWidth = gStroke.width * 1.3f)
+                                drawCircle(Morandi.accent.copy(alpha = 0.35f), radius = 12.dp.toPx() / currentScale, center = originCenter)
+                                drawCircle(Morandi.accent, radius = 6.dp.toPx() / currentScale, center = originCenter)
+                                drawCircle(Color.White, radius = 2.5.dp.toPx() / currentScale, center = originCenter)
+                                drawCircle(Morandi.accent.copy(alpha = 0.25f), radius = 13.dp.toPx() / currentScale, center = rotCenter)
+                                drawCircle(Morandi.accent, radius = 7.dp.toPx() / currentScale, center = rotCenter)
+                                drawCircle(Color.White, radius = 3.5.dp.toPx() / currentScale, center = rotCenter)
+                                drawCircle(Morandi.accent, radius = 1.5.dp.toPx() / currentScale, center = rotCenter)
                             }
                         }
                         GuideMode.ISOMETRIC -> {
-                            val step = (guide.gridSize * (bmp.width.toFloat() / maxOf(1, vm.docWidth))).coerceAtLeast(24f)
-                            val tan30 = 0.57735f
-                            var gx = -halfW
-                            while (gx < halfW) {
-                                drawLine(guideCol, Offset(gx, -halfH), Offset(gx, halfH), strokeWidth = gStroke.width)
-                                gx += step
+                            val scX = docW / maxOf(1, vm.docWidth)
+                            val scY = docH / maxOf(1, vm.docHeight)
+                            val step = (guide.gridSize * scX).coerceAtLeast(24f)
+                            val perpStep = step * AssistedDrawingGeometry.ISO_COS_30
+                            val originDoc = DrawingGuideHandleGeometry.gridOriginDocPos(vm.docWidth, vm.docHeight, guide)
+                            val ox = originDoc.x * scX - halfW
+                            val oy = originDoc.y * scY - halfH
+                            val maxRadius = hypot(docW, docH) + step
+                            val axes = AssistedDrawingGeometry.isometricAxes(guide.gridRotationDeg)
+                            val count = ceil(maxRadius / perpStep).toInt().coerceAtMost(240)
+                            clipRect(left = -halfW, top = -halfH, right = halfW, bottom = halfH) {
+                                for (axis in axes) {
+                                    val nx = -axis.y
+                                    val ny = axis.x
+                                    for (k in -count..count) {
+                                        val px = ox + nx * (k * perpStep)
+                                        val py = oy + ny * (k * perpStep)
+                                        drawLine(
+                                            guideCol,
+                                            Offset(px - axis.x * maxRadius, py - axis.y * maxRadius),
+                                            Offset(px + axis.x * maxRadius, py + axis.y * maxRadius),
+                                            strokeWidth = gStroke.width,
+                                        )
+                                    }
+                                }
                             }
-                            var offset = -halfH - halfW * tan30
-                            while (offset < halfH + halfW * tan30) {
-                                drawLine(guideCol, Offset(-halfW, offset - halfW * tan30), Offset(halfW, offset + halfW * tan30), strokeWidth = gStroke.width)
-                                drawLine(guideCol, Offset(-halfW, offset + halfW * tan30), Offset(halfW, offset - halfW * tan30), strokeWidth = gStroke.width)
-                                offset += step
+                            if (vm.drawingGuidePanelOpen) {
+                                val currentScale = (zoom * fitScale).coerceAtLeast(0.001f)
+                                val originCenter = Offset(ox, oy)
+                                val rotDoc = DrawingGuideHandleGeometry.gridRotationHandleDocPos(vm.docWidth, vm.docHeight, guide)
+                                val rotCenter = Offset(rotDoc.x * scX - halfW, rotDoc.y * scY - halfH)
+                                drawLine(Morandi.accent.copy(alpha = 0.45f), originCenter, rotCenter, strokeWidth = gStroke.width * 1.3f)
+                                drawCircle(Morandi.accent.copy(alpha = 0.35f), radius = 12.dp.toPx() / currentScale, center = originCenter)
+                                drawCircle(Morandi.accent, radius = 6.dp.toPx() / currentScale, center = originCenter)
+                                drawCircle(Color.White, radius = 2.5.dp.toPx() / currentScale, center = originCenter)
+                                drawCircle(Morandi.accent.copy(alpha = 0.25f), radius = 13.dp.toPx() / currentScale, center = rotCenter)
+                                drawCircle(Morandi.accent, radius = 7.dp.toPx() / currentScale, center = rotCenter)
+                                drawCircle(Color.White, radius = 3.5.dp.toPx() / currentScale, center = rotCenter)
+                                drawCircle(Morandi.accent, radius = 1.5.dp.toPx() / currentScale, center = rotCenter)
                             }
                         }
                         GuideMode.PERSPECTIVE -> {

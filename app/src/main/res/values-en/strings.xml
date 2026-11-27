@@ -2282,6 +2282,10 @@
     <string name="guide_perspective_ground">Ground</string>
     <string name="guide_perspective_cube">Guide Cube</string>
     <string name="guide_grid_size">Grid Size</string>
+    <string name="guide_grid_rotation">Grid Angle</string>
+    <string name="guide_grid_offset_x">Position X</string>
+    <string name="guide_grid_offset_y">Position Y</string>
+    <string name="guide_grid_reset">Reset Position &amp; Angle</string>
     <string name="guide_line_opacity">Guide Opacity</string>
     <string name="guide_tab_spatial">Spatial Guides</string>
     <string name="guide_tab_quickshape">QuickShape</string>

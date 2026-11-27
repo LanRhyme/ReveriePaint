@@ -135,4 +135,35 @@ class DrawingGuideHandleGeometryTest {
         assertFalse(DrawingGuideHandleGeometry.isAxisRotationZero(45f))
         assertFalse(DrawingGuideHandleGeometry.isAxisRotationZero(90f))
     }
+
+    @Test
+    fun `grid origin and rotation handle map identically across downscaled display buffer`() {
+        val docW = 2000
+        val docH = 1000
+        val bmpW = 1000f
+        val bmpH = 500f
+        val scX = bmpW / docW
+        val scY = bmpH / docH
+        val guide0 = DrawingGuideConfig(
+            mode = GuideMode.GRID_2D,
+            gridOffsetX = 0.25f,
+            gridOffsetY = 0.4f,
+            gridRotationDeg = 0f,
+        )
+        val origin = DrawingGuideHandleGeometry.gridOriginDocPos(docW, docH, guide0)
+        assertEquals(500f, origin.x, 0.01f)
+        assertEquals(400f, origin.y, 0.01f)
+
+        val rot0 = DrawingGuideHandleGeometry.gridRotationHandleDocPos(docW, docH, guide0)
+        // dist = 1000 * 0.28 = 280 => (780, 400)
+        assertEquals(780f, rot0.x, 0.01f)
+        assertEquals(400f, rot0.y, 0.01f)
+        assertEquals(780f * scX - bmpW / 2f, -110f, 0.01f)
+        assertEquals(400f * scY - bmpH / 2f, -50f, 0.01f)
+
+        val guide90 = guide0.copy(gridRotationDeg = 90f)
+        val rot90 = DrawingGuideHandleGeometry.gridRotationHandleDocPos(docW, docH, guide90)
+        assertEquals(500f, rot90.x, 0.01f)
+        assertEquals(680f, rot90.y, 0.01f)
+    }
 }
