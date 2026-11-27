@@ -240,14 +240,14 @@ Conventional Commits, **中文描述**, 格式:
   - 执行 `git log <last_tag>..HEAD --oneline` 提取自上个正式 tag 以来的全量提交
   - **识别 PR 编号**: 匹配形如 `Merge pull request #<num>` 的合并提交, 或 commit 标题末尾的 `(#<num>)`
   - **查询 PR 贡献者 Handle**: 对涉及的 PR 编号执行 `gh pr view <num> --json author --jq .author.login` 获取作者 GitHub 用户名
-- **生成结构化日志并写入 CHANGELOG.md**:
-  - 在 `CHANGELOG.md` 顶部插入 `## [vX.Y.Z] - YYYY-MM-DD`
-  - 按 `### 新增特性 (Features)` 与 `### 缺陷修复 (Bug Fixes)` 分类 (如有体验/性能调整可追加 `### 体验优化与调整`)
+- **生成结构化双语日志并写入 CHANGELOG**:
+  - 分别在 [CHANGELOG.md](CHANGELOG.md)（英文）与 [CHANGELOG_ZH.md](CHANGELOG_ZH.md)（简体中文）顶部插入 `## [vX.Y.Z] - YYYY-MM-DD`
+  - 英文使用 `### Features`、`### Bug Fixes`、`### Improvements` 分类; 中文使用 `### 新增特性 (Features)`、`### 缺陷修复 (Bug Fixes)`、`### 体验优化与调整` 分类
   - **面向用户、简洁直白**: 每条用一句话说清用户能感知到的变化, 严禁出现类名/函数名/文件名或技术黑话 (如 `GC`、`JNI`、`Lint`、`Compose`、`errno`、`mtime` 等); 工程或性能优化类提交统一改写为实际体感描述 (如"提升冷启动速度"、"减少内存占用")
   - **同版本功能与修复去重**: 在同一版本内新实现的功能及其后续修复提交, 只保留实现该功能的日志条目, 不单独列出对该新功能的修复 (若修复来自社区 PR, 可将署名合并到对应功能条目末尾)
   - **PR 贡献者行内署名**: 凡是通过 Pull Request 引入的条目 (包含维护者与社区贡献者), 须在条目末尾追加 `(by @<username> in #<num>)` (示例: `- **WebDAV 同步**: 支持通过 WebDAV 协议进行云端备份与还原 (by @ChinsaaWei in #16)`)
   - 严禁使用句号与任何表情符号 (emoji), 保持极简清晰
-- **提交版本变更**: 执行 `git add app/build.gradle.kts CHANGELOG.md && git commit -m "chore(release): 发布 X.Y.Z 版本并更新变更日志"`
+- **提交版本变更**: 执行 `git add app/build.gradle.kts CHANGELOG.md CHANGELOG_ZH.md && git commit -m "chore(release): 发布 X.Y.Z 版本并更新变更日志"`
 
 ### 5. 标签与远程推送
 - **打附注标签**: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
@@ -255,5 +255,5 @@ Conventional Commits, **中文描述**, 格式:
 
 ### 6. CI 监控与 Release 同步
 - **监控 CI 构建**: 后台监控 GitHub Actions 运行状态 (`release.yml`), 等待编译与打包完成
-- **更新 GitHub Release 正文**: CI 完成创建 release 后, 提取 `CHANGELOG.md` 中对应版本的日志, 执行 `gh release edit vX.Y.Z --notes-file <临时日志路径>` 补充完整更新说明 (自动触发 MirrorChyan 镜像与日志同步)
+- **更新 GitHub Release 正文**: CI 完成创建 release 后, 运行 `./scripts/build_release_notes.sh vX.Y.Z > /tmp/release_notes_vX.Y.Z.md` 生成包含 `## English` 与 `## 简体中文` 的双语正文, 再执行 `gh release edit vX.Y.Z --notes-file /tmp/release_notes_vX.Y.Z.md` 补充完整更新说明 (自动触发 MirrorChyan 镜像与日志同步)
 - **结果汇总汇报**: 向用户提供新版本号、Release 链接与 APK 产物大小

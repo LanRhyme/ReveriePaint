@@ -37,9 +37,11 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.res.stringResource
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.R
+import com.reverie.paint.core.LanguageManager
 import com.reverie.paint.core.UpdateManager
 import com.reverie.paint.model.DownloadStatus
 import com.reverie.paint.model.ReleaseInfo
+import com.reverie.paint.model.ReleaseNotesLocalizer
 import com.reverie.paint.ui.components.MarkdownView
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReTextButton
@@ -211,7 +213,10 @@ fun UpdateDialog(
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                         .verticalScroll(scrollState),
                 ) {
-                    val bodyText = release.body.ifBlank { stringResource(R.string.dialog_update_notes_empty) }
+                    val preferChinese = ReleaseNotesLocalizer.shouldPreferChinese(LanguageManager.getLocale())
+                    val bodyText = ReleaseNotesLocalizer
+                        .selectLanguageSection(release.body, preferChinese)
+                        .ifBlank { stringResource(R.string.dialog_update_notes_empty) }
                     MarkdownView(
                         markdown = bodyText,
                         modifier = Modifier.fillMaxWidth(),

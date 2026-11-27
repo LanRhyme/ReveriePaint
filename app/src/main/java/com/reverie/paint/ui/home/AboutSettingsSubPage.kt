@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.CircularProgressIndicator
@@ -63,6 +64,7 @@ import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.core.UpdateManager
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.R
+import com.reverie.paint.ui.dialog.ChangelogDialog
 import com.reverie.paint.ui.dialog.ContributorsDialog
 import com.reverie.paint.ui.dialog.SponsorsDialog
 import com.reverie.paint.ui.theme.Theme
@@ -88,6 +90,7 @@ fun AboutSettingsSubPage(
     var showContributorsDialog by remember { mutableStateOf(false) }
     var showSponsorsDialog by remember { mutableStateOf(false) }
     var showLicensesDialog by remember { mutableStateOf(false) }
+    var showChangelogDialog by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var autoCheckUpdates by remember { mutableStateOf(UpdateManager.isAutoCheckEnabled(context)) }
 
@@ -396,6 +399,15 @@ fun AboutSettingsSubPage(
                 },
             )
 
+            // 本地版本更新日志 (Middle Rounded)
+            AboutGroupItem(
+                icon = Icons.Rounded.NewReleases,
+                title = stringResource(R.string.settings_changelog_title),
+                summary = stringResource(R.string.settings_changelog_sub),
+                shape = RoundedCornerShape(4.dp),
+                onClick = { showChangelogDialog = true },
+            )
+
             // 启动时自动检查更新 (Middle Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.Sync,
@@ -491,6 +503,11 @@ fun AboutSettingsSubPage(
     // 第三方开源许可对话框 (MicYou OpenSourceLibraries 规范)
     if (showLicensesDialog) {
         LicensesDialog(onDismiss = { showLicensesDialog = false })
+    }
+
+    // 应用内版本更新日志对话框 (随当前应用语言切换中英文)
+    if (showChangelogDialog) {
+        ChangelogDialog(onDismiss = { showChangelogDialog = false })
     }
 
     // 全景系统运行诊断与混合日志对话框

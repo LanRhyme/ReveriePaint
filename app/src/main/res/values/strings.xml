@@ -551,6 +551,10 @@
     <string name="settings_mirrorchyan">MirrorChyan Fast Download</string>
     <string name="settings_mirrorchyan_sub">Domestic high-speed CDN mirror for latest releases</string>
     <string name="settings_version_title">Version</string>
+    <string name="settings_changelog_title">Changelog</string>
+    <string name="settings_changelog_sub">View version history and release notes</string>
+    <string name="changelog_dialog_subtitle">Current: v%s</string>
+    <string name="changelog_load_empty">No changelog available</string>
 
     <!-- Dialogs -->
     <string name="dialog_update_title">New Version Available</string>
@@ -571,6 +575,14 @@
     <string name="dialog_update_mirror_failover">Recommended: Download via MirrorChyan High-speed CDN</string>
     <string name="dialog_update_already_latest">ReveriePaint is up to date (v%s)</string>
     <string name="dialog_update_checking">Checking for updates</string>
+    <string name="dialog_update_fetch_failed">Failed to fetch version info, please check your network</string>
+    <string name="dialog_update_check_failed">Update check failed: %s</string>
+    <string name="dialog_update_no_apk">No valid APK package found</string>
+    <string name="dialog_update_empty_body">Downloaded content is empty</string>
+    <string name="dialog_update_rename_failed">Failed to finalize package file</string>
+    <string name="dialog_update_apk_missing">Installer package not found</string>
+    <string name="dialog_update_install_permission">Please allow installing unknown apps, then return to install</string>
+    <string name="dialog_update_install_failed">Unable to open installer: %s</string>
 
     <!-- Tool Groups -->
     <string name="tool_group_brush">Brushes</string>

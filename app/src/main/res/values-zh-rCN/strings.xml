@@ -551,6 +551,10 @@
     <string name="settings_mirrorchyan">Mirror酱高速下载</string>
     <string name="settings_mirrorchyan_sub">国内免梯高速 CDN 镜像下载最新安装包</string>
     <string name="settings_version_title">版本</string>
+    <string name="settings_changelog_title">更新日志</string>
+    <string name="settings_changelog_sub">查看版本历史与更新内容</string>
+    <string name="changelog_dialog_subtitle">当前版本：v%s</string>
+    <string name="changelog_load_empty">暂无更新日志</string>
 
     <!-- Dialogs -->
     <string name="dialog_update_title">发现新版本</string>
@@ -571,6 +575,14 @@
     <string name="dialog_update_mirror_failover">推荐：使用 Mirror酱 国内免梯高速下载</string>
     <string name="dialog_update_already_latest">当前已是最新版本 (v%s)</string>
     <string name="dialog_update_checking">正在检查更新</string>
+    <string name="dialog_update_fetch_failed">获取版本信息失败，请检查网络设置</string>
+    <string name="dialog_update_check_failed">检查更新失败: %s</string>
+    <string name="dialog_update_no_apk">未找到有效的 APK 安装包资源</string>
+    <string name="dialog_update_empty_body">下载内容为空</string>
+    <string name="dialog_update_rename_failed">文件命名失败</string>
+    <string name="dialog_update_apk_missing">安装包不存在</string>
+    <string name="dialog_update_install_permission">请授予安装未知应用权限后返回安装</string>
+    <string name="dialog_update_install_failed">无法拉起安装器: %s</string>
 
     <!-- Tool Groups -->
     <string name="tool_group_brush">笔刷</string>
