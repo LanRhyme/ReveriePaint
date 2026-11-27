@@ -735,7 +735,7 @@ class PaintViewModel : ViewModel() {
     var canvasRotationEnabled by mutableStateOf(true) // 画布可旋转
     
     var canvasRotationSnapDegrees by mutableFloatStateOf(RotationSnap.DEFAULT_THRESHOLD_DEGREES)
-    var magnificationInterpolation by mutableStateOf(true) // 放大插值
+    var magnificationInterpolation by mutableStateOf(false) // 放大插值 (默认关闭)
     var pixelGridEnabled by mutableStateOf(true) // 放大显示网格线
     var undoToastEnabled by mutableStateOf(true) // 撤销操作提醒
     var undoBarEnabled by mutableStateOf(true) // 连续撤销/重做滑动条 (默认开启)
