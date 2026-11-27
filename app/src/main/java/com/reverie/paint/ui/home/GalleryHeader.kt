@@ -37,7 +37,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -90,6 +89,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.Project
 import com.reverie.paint.model.UiAnimationSpeed
+import com.reverie.paint.ui.components.LiquidSegmentedBar
 import com.reverie.paint.ui.components.ReDropdownMenu
 import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.liquidHighlight
@@ -800,42 +800,32 @@ private fun GalleryCardSizeSelector(
         "STANDARD" to stringResource(R.string.gallery_card_size_standard),
         "LARGE" to stringResource(R.string.gallery_card_size_large),
     )
-    Row(
+    val selectedIndex = options.indexOfFirst { it.first == selectedSize }.coerceAtLeast(0)
+    LiquidSegmentedBar(
+        count = options.size,
+        selectedIndex = selectedIndex,
+        onSelect = { index ->
+            options.getOrNull(index)?.let { onSelectSize(it.first) }
+        },
         modifier = Modifier
             .fillMaxWidth()
+            .widthIn(min = 168.dp)
             .padding(horizontal = 10.dp, vertical = 4.dp)
-            .height(34.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(colors.panel.copy(alpha = 0.72f))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        options.forEach { (key, label) ->
-            val selected = selectedSize == key
-            val interaction = remember { MutableInteractionSource() }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .pressScale(interaction, pressedScale = 0.94f)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(if (selected) colors.accent else Color.Transparent)
-                    .clickable(
-                        interactionSource = interaction,
-                        indication = null,
-                    ) { onSelectSize(key) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    color = if (selected) colors.onAccent else colors.subText,
-                    fontSize = 11.5.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
-                )
-            }
-        }
+            .height(34.dp),
+        trackColor = colors.panel.copy(alpha = 0.72f),
+        pillColor = colors.accent,
+        trackCornerRadius = 10.dp,
+        pillCornerRadius = 7.dp,
+        trackPadding = 3.dp,
+    ) { index, isActive ->
+        Text(
+            text = options[index].second,
+            color = if (isActive) colors.onAccent else colors.subText,
+            fontSize = 11.5.sp,
+            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 
