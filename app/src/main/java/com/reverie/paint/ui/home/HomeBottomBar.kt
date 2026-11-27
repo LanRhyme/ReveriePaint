@@ -47,6 +47,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -182,11 +183,26 @@ internal fun Modifier.homeLiquidGlassSurface(
     hazeState: HazeState? = null,
 ): Modifier {
     val isDark = colors.panel.luminance() < 0.5f
-    val blurAlpha = if (isDark) 0.74f else 0.78f
-    val fallbackAlpha = if (isDark) 0.96f else 0.96f
+    val fallbackAlpha = 0.94f
 
-    val shadowColor = if (isDark) Color.Black.copy(alpha = 0.34f) else Color.Black.copy(alpha = 0.10f)
-    val hairlineColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.07f)
+    val shadowColor = if (isDark) Color.Black.copy(alpha = 0.36f) else Color.Black.copy(alpha = 0.11f)
+    val rimBrush = remember(isDark) {
+        if (isDark) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.20f),
+                    Color.White.copy(alpha = 0.05f),
+                ),
+            )
+        } else {
+            Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.72f),
+                    Color.Black.copy(alpha = 0.08f),
+                ),
+            )
+        }
+    }
 
     return this
         .externalShadow(
@@ -200,7 +216,7 @@ internal fun Modifier.homeLiquidGlassSurface(
             if (hazeState != null) {
                 Modifier.hazeEffect(
                     state = hazeState,
-                    style = Glass.barStyle(blurAlpha),
+                    style = Glass.dockStyle(),
                 )
             } else {
                 Modifier.background(colors.panel.copy(alpha = fallbackAlpha))
@@ -208,11 +224,11 @@ internal fun Modifier.homeLiquidGlassSurface(
         )
         .drawWithContent {
             drawContent()
-            val strokePx = 0.5.dp.toPx().coerceAtLeast(0.5f)
+            val strokePx = 0.75.dp.toPx().coerceAtLeast(1f)
             val outline = shape.createOutline(size, layoutDirection, this)
             drawOutline(
                 outline = outline,
-                color = hairlineColor,
+                brush = rimBrush,
                 style = Stroke(width = strokePx),
             )
         }

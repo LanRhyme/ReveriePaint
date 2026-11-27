@@ -71,11 +71,7 @@ internal fun PaintViewModel.commitTypographyToCanvas() {
             collapsedPanelIds = collapsedPanelIds - pids
         }
         val textSnippet = cfg.text.replace("\n", " ").trim().take(8)
-        val defaultTextName = if (LanguageManager.isChinese()) {
-            "文本: $textSnippet"
-        } else {
-            "Text: $textSnippet"
-        }
+        val defaultTextName = getString(R.string.layer_default_text_snippet, textSnippet)
         val initialItems = listOf(cfg)
         runCore(render = true, after = {
             notifyLayerChanged(forceThumbs = true, pixelChanged = true)

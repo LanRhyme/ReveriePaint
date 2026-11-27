@@ -150,10 +150,11 @@ internal fun PaintViewModel.onAppBackgrounded() {
     autoSaveProject(isPeriodic = false)
 }
 
-/** 回到前台: 若仍停在绘画页, 恢复每秒计时与自动保存唤醒。 */
+/** 回到前台: 若仍停在绘画页, 恢复每秒计时与自动保存唤醒; 协同模式下立即探活防止后台断线后卡死。 */
 internal fun PaintViewModel.onAppForegrounded() {
     if (currentPage == Page.PAINTING) startPaintingTimer()
     startSyncTimerIfNeeded()
+    probeCollabConnectionOnForeground()
 }
 
 internal fun PaintViewModel.markModified() {

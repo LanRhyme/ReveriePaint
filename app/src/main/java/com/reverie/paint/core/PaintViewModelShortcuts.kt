@@ -184,7 +184,7 @@ internal fun PaintViewModel.loadViewSettings() {
         } else {
             RotationSnap.DEFAULT_THRESHOLD_DEGREES
         }
-        magnificationInterpolation = o.optBoolean("mag_interpolation", true)
+        magnificationInterpolation = o.optBoolean("mag_interpolation", false)
         pixelGridEnabled = o.optBoolean("pixel_grid", true)
         undoToastEnabled = o.optBoolean("undo_toast", true)
         undoBarEnabled = o.optBoolean("undo_bar", true)

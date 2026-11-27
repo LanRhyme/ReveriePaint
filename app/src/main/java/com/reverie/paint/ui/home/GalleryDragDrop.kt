@@ -7,6 +7,8 @@ package com.reverie.paint.ui.home
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateOffsetAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -14,11 +16,15 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,13 +35,18 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.reverie.paint.R
 import com.reverie.paint.model.Project
+import com.reverie.paint.model.UiAnimationSpeed
 import com.reverie.paint.ui.theme.AppColors
 import com.reverie.paint.ui.theme.Motion
+import com.reverie.paint.ui.theme.blendColors
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 /**
@@ -54,14 +65,74 @@ internal fun FloatingDragProxy(
     modifier: Modifier = Modifier,
 ) {
     val thumb = rememberThumbnail(project.previewPath, project.lastModified)
-    val dragCardSize = 130.dp
+    val dragCardSize = 136.dp
     val density = LocalDensity.current
     val halfSizePx = with(density) { (dragCardSize / 2).toPx() }
+    val isDark = colors.isDarkTheme()
+    val proxyShape = RoundedCornerShape(12.dp)
+    val hairlineBrush = remember(isDark) { artboardHairlineBrush(colors) }
+    val aspectRatio = remember(project.width, project.height) {
+        if (project.width > 0 && project.height > 0) {
+            (project.width.toFloat() / project.height.toFloat()).coerceIn(0.65f, 1.55f)
+        } else {
+            1.0f
+        }
+    }
 
-    // 拾起的一瞬间物理弹出
-    val dragLift = remember(project.filePath) { Animatable(0.82f) }
+    // 拾起的一瞬间物理弹出 (遵循动效速度设置)
+    val dragLift = remember(project.filePath) {
+        Animatable(if (Motion.currentSpeed == UiAnimationSpeed.OFF) 1f else 0.82f)
+    }
     LaunchedEffect(project.filePath) {
-        dragLift.animateTo(1f, Motion.snapBouncy)
+        if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+            dragLift.snapTo(1f)
+        } else {
+            dragLift.animateTo(1f, Motion.snapBouncy)
+        }
+    }
+
+    // 阻尼弹簧惯性跟随: 赋予代理卡片真实物理质量感 (动效关闭时瞬时跟随)
+    val smoothTouchPos by animateOffsetAsState(
+        targetValue = dragTouchRootPos,
+        animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+            snap()
+        } else {
+            spring(dampingRatio = 0.88f, stiffness = 1400f)
+        },
+        label = "DragProxyFollowPos",
+    )
+
+    // 拖拽速度响应惯性倾角: 水平移动时向运动反方向微倾, 停手后回正到静息微倾角 (-2.5°)
+    var prevPos by remember(project.filePath) { mutableStateOf(dragTouchRootPos) }
+    var targetTilt by remember(project.filePath) { mutableFloatStateOf(-2.5f) }
+    LaunchedEffect(dragTouchRootPos) {
+        if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+            prevPos = dragTouchRootPos
+            targetTilt = -2.5f
+            return@LaunchedEffect
+        }
+        val dx = dragTouchRootPos.x - prevPos.x
+        prevPos = dragTouchRootPos
+        targetTilt = (-2.5f + (dx * 0.28f).coerceIn(-8.5f, 8.5f))
+        delay(90)
+        targetTilt = -2.5f
+    }
+    val tiltAngle by animateFloatAsState(
+        targetValue = if (Motion.currentSpeed == UiAnimationSpeed.OFF) -2.5f else targetTilt,
+        animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+            snap()
+        } else {
+            spring(dampingRatio = 0.62f, stiffness = 280f)
+        },
+        label = "DragProxyTilt",
+    )
+
+    val backLayer2Color = if (isDark) blendColors(colors.panelHi, colors.bg, 0.35f) else blendColors(colors.panel, Color.Black, 0.05f)
+    val backLayer1Color = if (isDark) colors.panelHi else colors.panel
+    val frontBackdrop = if (thumb != null) {
+        if (isDark) colors.panelHi else Color.White
+    } else {
+        colors.panelHi
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -69,8 +140,8 @@ internal fun FloatingDragProxy(
             modifier = Modifier
                 .offset {
                     IntOffset(
-                        (dragTouchRootPos.x - halfSizePx).roundToInt(),
-                        (dragTouchRootPos.y - halfSizePx).roundToInt(),
+                        (smoothTouchPos.x - halfSizePx).roundToInt(),
+                        (smoothTouchPos.y - halfSizePx).roundToInt(),
                     )
                 }
                 .size(dragCardSize),
@@ -80,17 +151,18 @@ internal fun FloatingDragProxy(
             if (dragCount > 2) {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxSize(0.92f)
+                        .aspectRatio(aspectRatio, matchHeightConstraintsFirst = aspectRatio < 1.0f)
                         .graphicsLayer {
                             rotationZ = 6f
                             translationX = 7.dp.toPx()
                             translationY = 5.dp.toPx()
-                            alpha = 0.85f * dragLift.value
+                            alpha = 0.88f * dragLift.value
                         }
-                        .shadow(8.dp, RoundedCornerShape(12.dp), clip = false)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFE8E8E8))
-                        .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(12.dp)),
+                        .shadow(8.dp, proxyShape, clip = false)
+                        .clip(proxyShape)
+                        .background(backLayer2Color)
+                        .border(0.75.dp, hairlineBrush, proxyShape),
                 )
             }
 
@@ -98,34 +170,42 @@ internal fun FloatingDragProxy(
             if (dragCount > 1) {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxSize(0.92f)
+                        .aspectRatio(aspectRatio, matchHeightConstraintsFirst = aspectRatio < 1.0f)
                         .graphicsLayer {
                             rotationZ = -7f
                             translationX = (-6).dp.toPx()
                             translationY = 4.dp.toPx()
-                            alpha = 0.90f * dragLift.value
+                            alpha = 0.92f * dragLift.value
                         }
-                        .shadow(12.dp, RoundedCornerShape(12.dp), clip = false)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFF2F2F2))
-                        .border(1.dp, colors.border.copy(alpha = 0.8f), RoundedCornerShape(12.dp)),
+                        .shadow(12.dp, proxyShape, clip = false)
+                        .clip(proxyShape)
+                        .background(backLayer1Color)
+                        .border(0.75.dp, hairlineBrush, proxyShape),
                 )
             }
 
             // 顶层主卡片
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .shadow(16.dp, RoundedCornerShape(12.dp), clip = false)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.White)
-                    .border(1.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .fillMaxSize(0.94f)
+                    .aspectRatio(aspectRatio, matchHeightConstraintsFirst = aspectRatio < 1.0f)
                     .graphicsLayer {
-                        rotationZ = -3.5f
-                        alpha = 0.94f
-                        scaleX = dragLift.value
-                        scaleY = dragLift.value
-                    },
+                        rotationZ = tiltAngle
+                        alpha = 0.95f
+                        val liftedScale = dragLift.value * 1.06f
+                        scaleX = liftedScale
+                        scaleY = liftedScale
+                    }
+                    .shadow(
+                        elevation = if (isDark) 18.dp else 14.dp,
+                        shape = proxyShape,
+                        spotColor = Color.Black.copy(alpha = if (isDark) 0.50f else 0.22f),
+                        clip = false,
+                    )
+                    .clip(proxyShape)
+                    .background(frontBackdrop)
+                    .border(0.75.dp, hairlineBrush, proxyShape),
                 contentAlignment = Alignment.Center,
             ) {
                 if (thumb != null) {
@@ -136,7 +216,12 @@ internal fun FloatingDragProxy(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    Box(modifier = Modifier.fillMaxSize().background(Color(0xFFEEEEF0)))
+                    Icon(
+                        painter = painterResource(R.drawable.ic_canvas_tab),
+                        contentDescription = null,
+                        tint = colors.subText.copy(alpha = 0.45f),
+                        modifier = Modifier.size(30.dp),
+                    )
                 }
 
                 if (dragCount > 1) {
@@ -144,16 +229,16 @@ internal fun FloatingDragProxy(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(6.dp)
-                            .shadow(3.dp, CircleShape)
+                            .shadow(4.dp, CircleShape, clip = false)
                             .clip(CircleShape)
-                            .background(colors.panel.copy(alpha = 0.95f))
-                            .border(1.dp, colors.border, CircleShape)
+                            .background(colors.accent)
+                            .border(1.dp, Color.White.copy(alpha = 0.28f), CircleShape)
                             .size(24.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = "$dragCount",
-                            color = colors.text,
+                            color = colors.onAccent,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
                         )

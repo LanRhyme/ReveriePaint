@@ -4,6 +4,7 @@
 
 package com.reverie.paint.ui.painting.panels
 
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -11,7 +12,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,16 +29,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.reverie.paint.ui.components.liquidHighlight
 import com.reverie.paint.ui.components.liquidLean
 import com.reverie.paint.ui.components.liquidSheen
 import com.reverie.paint.ui.components.pressScale
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,10 +56,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.NudgeAcceleration
 import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
 import com.reverie.paint.ui.painting.canvas.TransformMode
 import com.reverie.paint.ui.painting.canvas.TransformState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Professional Transform Tool Panel matching Krita & Huashijie Pro.
@@ -82,65 +91,45 @@ fun TransformPanel(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 // UP (Chevron points up: rotate 270)
-                TransformIconButton(
+                TransformNudgeButton(
                     iconRes = R.drawable.ic_chevron,
                     label = stringResource(R.string.transform_move_up),
                     rotation = 270f,
-                    onClick = {
-                        tfState.ty -= 1f
-                        if (tfState.mode == TransformMode.PERSPECTIVE) {
-                            tfState.quadCorners = tfState.quadCorners.map { it.copy(y = it.y - 1f) }
-                        } else if (tfState.mode == TransformMode.DISTORT) {
-                            tfState.meshPoints = tfState.meshPoints.map { it.copy(y = it.y - 1f) }
-                        }
-                    }
+                    onPressStart = { tfState.beginNudgeGesture() },
+                    onNudgeStep = { step -> tfState.nudgeBy(0f, -step) },
+                    onPressEnd = { tfState.endNudgeGesture() },
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(28.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // LEFT (Chevron points left: rotate 180)
-                    TransformIconButton(
+                    TransformNudgeButton(
                         iconRes = R.drawable.ic_chevron,
                         label = stringResource(R.string.transform_move_left),
                         rotation = 180f,
-                        onClick = {
-                            tfState.tx -= 1f
-                            if (tfState.mode == TransformMode.PERSPECTIVE) {
-                                tfState.quadCorners = tfState.quadCorners.map { it.copy(x = it.x - 1f) }
-                            } else if (tfState.mode == TransformMode.DISTORT) {
-                                tfState.meshPoints = tfState.meshPoints.map { it.copy(x = it.x - 1f) }
-                            }
-                        }
+                        onPressStart = { tfState.beginNudgeGesture() },
+                        onNudgeStep = { step -> tfState.nudgeBy(-step, 0f) },
+                        onPressEnd = { tfState.endNudgeGesture() },
                     )
                     // RIGHT (Chevron points right: rotate 0)
-                    TransformIconButton(
+                    TransformNudgeButton(
                         iconRes = R.drawable.ic_chevron,
                         label = stringResource(R.string.transform_move_right),
                         rotation = 0f,
-                        onClick = {
-                            tfState.tx += 1f
-                            if (tfState.mode == TransformMode.PERSPECTIVE) {
-                                tfState.quadCorners = tfState.quadCorners.map { it.copy(x = it.x + 1f) }
-                            } else if (tfState.mode == TransformMode.DISTORT) {
-                                tfState.meshPoints = tfState.meshPoints.map { it.copy(x = it.x + 1f) }
-                            }
-                        }
+                        onPressStart = { tfState.beginNudgeGesture() },
+                        onNudgeStep = { step -> tfState.nudgeBy(step, 0f) },
+                        onPressEnd = { tfState.endNudgeGesture() },
                     )
                 }
                 // DOWN (Chevron points down: rotate 90)
-                TransformIconButton(
+                TransformNudgeButton(
                     iconRes = R.drawable.ic_chevron,
                     label = stringResource(R.string.transform_move_down),
                     rotation = 90f,
-                    onClick = {
-                        tfState.ty += 1f
-                        if (tfState.mode == TransformMode.PERSPECTIVE) {
-                            tfState.quadCorners = tfState.quadCorners.map { it.copy(y = it.y + 1f) }
-                        } else if (tfState.mode == TransformMode.DISTORT) {
-                            tfState.meshPoints = tfState.meshPoints.map { it.copy(y = it.y + 1f) }
-                        }
-                    }
+                    onPressStart = { tfState.beginNudgeGesture() },
+                    onNudgeStep = { step -> tfState.nudgeBy(0f, step) },
+                    onPressEnd = { tfState.endNudgeGesture() },
                 )
             }
         }
@@ -253,7 +242,15 @@ fun TransformPanel(
                     onClick = { showDpad = !showDpad },
                 )
 
-                // 5. 重置所有变形
+                // 5. 磁力 / 网格吸附开关
+                ToolActionButton(
+                    iconRes = R.drawable.ic_grid,
+                    label = stringResource(R.string.transform_snap),
+                    active = tfState.snapEnabled,
+                    onClick = { tfState.snapEnabled = !tfState.snapEnabled },
+                )
+
+                // 6. 重置所有变形
                 ToolActionButton(
                     iconRes = R.drawable.ic_refresh,
                     label = stringResource(R.string.settings_shortcut_reset),
@@ -287,14 +284,24 @@ fun TransformPanel(
 
 
 @Composable
-private fun TransformIconButton(
+private fun TransformNudgeButton(
     iconRes: Int,
     label: String,
     size: androidx.compose.ui.unit.Dp = 34.dp,
     rotation: Float = 0f,
-    onClick: () -> Unit,
+    onPressStart: () -> Unit = {},
+    onNudgeStep: (Float) -> Unit,
+    onPressEnd: () -> Unit = {},
 ) {
-    val iconSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val iconSource = remember { MutableInteractionSource() }
+    val scope = rememberCoroutineScope()
+    val currentOnPressStart by rememberUpdatedState(onPressStart)
+    val currentOnNudgeStep by rememberUpdatedState(onNudgeStep)
+    val currentOnPressEnd by rememberUpdatedState(onPressEnd)
+
+    DisposableEffect(Unit) {
+        onDispose { currentOnPressEnd() }
+    }
 
     Box(
         modifier = Modifier
@@ -304,7 +311,34 @@ private fun TransformIconButton(
             .clip(CircleShape)
             .background(Morandi.panelHi)
             .liquidHighlight(iconSource, Color.White, radius = 20.dp)
-            .clickable(interactionSource = iconSource, indication = null) { onClick() },
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val downTimeMs = SystemClock.uptimeMillis()
+                    val press = PressInteraction.Press(down.position)
+                    iconSource.tryEmit(press)
+                    currentOnPressStart()
+                    currentOnNudgeStep(1f)
+                    val repeatJob = scope.launch {
+                        delay(NudgeAcceleration.INITIAL_REPEAT_DELAY_MS)
+                        while (true) {
+                            val heldMs = SystemClock.uptimeMillis() - downTimeMs
+                            currentOnNudgeStep(NudgeAcceleration.stepPxForHoldMs(heldMs))
+                            delay(NudgeAcceleration.REPEAT_INTERVAL_MS)
+                        }
+                    }
+                    val up = try {
+                        waitForUpOrCancellation()
+                    } finally {
+                        repeatJob.cancel()
+                        currentOnPressEnd()
+                    }
+                    iconSource.tryEmit(
+                        if (up != null) PressInteraction.Release(press)
+                        else PressInteraction.Cancel(press),
+                    )
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         Icon(

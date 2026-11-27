@@ -101,7 +101,7 @@ class PaintViewModel : ViewModel() {
      */
     internal var statsReportedStrokes by mutableIntStateOf(0)
     internal var statsReportedSeconds by mutableLongStateOf(0L)
-    var colorMode by mutableStateOf("RGB 8位 (sRGB)")
+    var colorMode by mutableStateOf("RGB 8-bit (sRGB)")
 
     // Active drawing duration tracking (1-minute idle threshold)
     internal var lastActiveTimeMs = 0L
@@ -384,6 +384,9 @@ class PaintViewModel : ViewModel() {
         internal set
 
     var pinnedTools by mutableStateOf<List<com.reverie.paint.model.Tool>>(DEFAULT_PINNED_TOOLS)
+        internal set
+
+    var customToolIcons by mutableStateOf<Map<String, com.reverie.paint.model.CustomToolIcon>>(emptyMap())
         internal set
 
     var currentToolId by mutableStateOf("brush")
@@ -670,7 +673,7 @@ class PaintViewModel : ViewModel() {
     var blurBackground by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 背景毛玻璃效果，默认开启（API<31 设备不支持模糊，自动回退实色）
     var canvasOpenWaveEnabled by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 打开/新建画布扭曲波纹特效，默认开启（Android 12 以下强制关闭）
     var accentColorHex by mutableStateOf("#879ED1")
-    var monetEnabled by mutableStateOf(false) // 莫奈动态取色
+    var monetEnabled by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 莫奈动态取色，默认开启（Android 12 以下不支持）
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var themeContrast by mutableStateOf("STANDARD") // "SOFT", "STANDARD", "HIGH"
     var themeStyle by mutableStateOf(com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED) // MORANDI_TINTED, NEUTRAL_STUDIO, WARM_EARTHY, VIBRANT_GLOW
@@ -749,7 +752,7 @@ class PaintViewModel : ViewModel() {
     var canvasRotationEnabled by mutableStateOf(true) // 画布可旋转
     
     var canvasRotationSnapDegrees by mutableFloatStateOf(RotationSnap.DEFAULT_THRESHOLD_DEGREES)
-    var magnificationInterpolation by mutableStateOf(true) // 放大插值
+    var magnificationInterpolation by mutableStateOf(false) // 放大插值 (默认关闭)
     var pixelGridEnabled by mutableStateOf(true) // 放大显示网格线
     var undoToastEnabled by mutableStateOf(true) // 撤销操作提醒
     var undoBarEnabled by mutableStateOf(true) // 连续撤销/重做滑动条 (默认开启)
@@ -2039,6 +2042,9 @@ class PaintViewModel : ViewModel() {
         internal set
     var currentFolder by mutableStateOf<com.reverie.paint.model.Project?>(null)
     var searchQuery by mutableStateOf("")
+    var gallerySortMode by mutableStateOf("MODIFIED")
+    var galleryCardSize by mutableStateOf("STANDARD")
+    var galleryShowCardMeta by mutableStateOf(true)
     var pendingExternalImageUri by mutableStateOf<android.net.Uri?>(null)
     var pendingExternalBrushUris by mutableStateOf<List<android.net.Uri>?>(null)
     var isDraggingExternal by mutableStateOf(false)

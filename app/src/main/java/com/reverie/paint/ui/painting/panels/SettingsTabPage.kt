@@ -44,6 +44,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import com.reverie.paint.ui.components.verticalFeatherEdge
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
@@ -109,10 +110,12 @@ internal fun SettingsTabPage(
         when (subPage) {
             // ---- 1. 视图显示 ----
             "VIEW" -> {
+                val viewScroll = rememberScrollState()
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
+                        .verticalFeatherEdge(viewScroll)
+                        .verticalScroll(viewScroll),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     SubPageHeader(
@@ -545,10 +548,12 @@ internal fun SettingsTabPage(
 
             // ---- 3. 手势设置 ----
             "GESTURE" -> {
+                val gestureScroll = rememberScrollState()
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
+                        .verticalFeatherEdge(gestureScroll)
+                        .verticalScroll(gestureScroll),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     SubPageHeader(
@@ -804,10 +809,12 @@ internal fun SettingsTabPage(
 
             // ---- 4. 颜色设置 ----
             "COLOR" -> {
+                val colorScroll = rememberScrollState()
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
+                        .verticalFeatherEdge(colorScroll)
+                        .verticalScroll(colorScroll),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     SubPageHeader(
@@ -1001,10 +1008,12 @@ internal fun SettingsTabPage(
 
             // ---- 主设置页 ----
             else -> {
+                val mainScroll = rememberScrollState()
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
+                        .verticalFeatherEdge(mainScroll)
+                        .verticalScroll(mainScroll),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     // 1. 触控与手写笔
@@ -1624,10 +1633,12 @@ private fun ActionPickerSheet(
             }
         },
         text = {
+            val actionScroll = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
+                    .verticalFeatherEdge(actionScroll, edgeHeight = 16.dp)
+                    .verticalScroll(actionScroll),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 allActions.forEach { action ->

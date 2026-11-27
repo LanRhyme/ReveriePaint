@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,6 +46,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.shape.CircleShape
@@ -87,8 +89,16 @@ import com.reverie.paint.R
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.unit.Dp
 import com.reverie.paint.ui.theme.Morandi
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
@@ -194,6 +204,71 @@ fun ReIconButton(
     }
 }
 
+@Composable
+fun ReIconButton(
+    desc: String,
+    onTap: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    emphasizeColorIconOnSelect: Boolean = false,
+    size: androidx.compose.ui.unit.Dp = 32.dp,
+    tint: Color? = null,
+    iconSize: androidx.compose.ui.unit.Dp = Dimens.icon,
+    enabled: Boolean = true,
+    content: @Composable (tintColor: Color, iconSize: androidx.compose.ui.unit.Dp) -> Unit,
+) {
+    val colors = Theme.current
+    val interaction = remember { MutableInteractionSource() }
+    val baseTint = tint ?: if (selected) colors.accent else colors.icon
+    val tintColor by animateColorAsState(
+        if (enabled) baseTint else baseTint.copy(alpha = 0.32f),
+        spring(dampingRatio = 0.90f, stiffness = 500f),
+    )
+    val targetScale = if (emphasizeColorIconOnSelect) {
+        if (selected) 1.12f else 0.94f
+    } else {
+        1f
+    }
+    val iconScale by animateFloatAsState(
+        targetValue = targetScale,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 460f),
+        label = "icon_select_scale",
+    )
+    val targetAlpha = when {
+        !enabled -> 0.32f
+        emphasizeColorIconOnSelect && !selected -> 0.62f
+        else -> 1f
+    }
+    val iconAlpha by animateFloatAsState(
+        targetValue = targetAlpha,
+        animationSpec = tween(160),
+        label = "icon_select_alpha",
+    )
+    val shape = RoundedCornerShape(8.dp)
+
+    Box(
+        modifier = modifier
+            .defaultMinSize(minWidth = size, minHeight = size)
+            .pressScale(interaction, pressedScale = 0.82f)
+            .liquidLean(interaction, maxOffset = 4.dp)
+            .clip(shape)
+            .liquidHighlight(interaction, Color.White, radius = 20.dp)
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onTap() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier.graphicsLayer {
+                scaleX = iconScale
+                scaleY = iconScale
+                alpha = iconAlpha
+            },
+            contentAlignment = Alignment.Center,
+        ) {
+            content(tintColor, iconSize)
+        }
+    }
+}
+
 // ---------- primary / secondary text button ----------
 @Composable
 fun ReButton(
@@ -201,6 +276,7 @@ fun ReButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     primary: Boolean = true,
+    enabled: Boolean = true,
 ) {
     val colors = Theme.current
     val interaction = remember { MutableInteractionSource() }
@@ -208,12 +284,17 @@ fun ReButton(
     Box(
         modifier =
             modifier
-                .then(if (primary) Modifier.pressGrow(interaction, growFraction = 0.03f) else Modifier.pressScale(interaction, pressedScale = 0.97f))
+                .then(
+                    if (!enabled) Modifier
+                    else if (primary) Modifier.pressGrow(interaction, growFraction = 0.03f)
+                    else Modifier.pressScale(interaction, pressedScale = 0.97f),
+                )
+                .alpha(if (enabled) 1f else 0.45f)
                 .clip(buttonShape)
                 .liquidHighlight(interaction, Color.White, radius = 40.dp)
                 .background(if (primary) colors.accent else colors.panelHi)
                 .then(if (!primary) Modifier.glassBorder(buttonShape) else Modifier)
-                .clickable(interactionSource = interaction, indication = null) { onClick() }
+                .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onClick() }
                 .padding(horizontal = 18.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -2256,6 +2337,104 @@ private class UiSlotNode(
             padH = slot.shadowPadHDp * d,
             padT = slot.shadowPadTopDp * d,
             padB = slot.shadowPadBottomDp * d,
+        )
+    }
+}
+
+/** 为垂直滚动容器添加上下边缘柔焦羽化渐变 (随滚动位置平滑显隐)。 */
+@Composable
+fun Modifier.verticalFeatherEdge(
+    showTop: Boolean,
+    showBottom: Boolean,
+    edgeHeight: Dp = 22.dp,
+): Modifier {
+    val topAlpha by animateFloatAsState(
+        targetValue = if (showTop) 1f else 0f,
+        animationSpec = tween(durationMillis = 160),
+        label = "VerticalFeatherTop",
+    )
+    val bottomAlpha by animateFloatAsState(
+        targetValue = if (showBottom) 1f else 0f,
+        animationSpec = tween(durationMillis = 160),
+        label = "VerticalFeatherBottom",
+    )
+    return this
+        .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+        .drawWithContent {
+            drawContent()
+            val fadePx = minOf(edgeHeight.toPx(), size.height * 0.25f)
+            if (fadePx > 0f && topAlpha > 0.01f) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Black.copy(alpha = 1f - topAlpha), Color.Black),
+                        startY = 0f,
+                        endY = fadePx,
+                    ),
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, fadePx),
+                    blendMode = BlendMode.DstIn,
+                )
+            }
+            if (fadePx > 0f && bottomAlpha > 0.01f) {
+                val startY = (size.height - fadePx).coerceAtLeast(0f)
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Black, Color.Black.copy(alpha = 1f - bottomAlpha)),
+                        startY = startY,
+                        endY = size.height,
+                    ),
+                    topLeft = Offset(0f, startY),
+                    size = Size(size.width, size.height - startY),
+                    blendMode = BlendMode.DstIn,
+                )
+            }
+        }
+}
+
+@Composable
+fun Modifier.verticalFeatherEdge(
+    scrollState: ScrollState,
+    edgeHeight: Dp = 22.dp,
+): Modifier = verticalFeatherEdge(
+    showTop = scrollState.canScrollBackward,
+    showBottom = scrollState.canScrollForward,
+    edgeHeight = edgeHeight,
+)
+
+@Composable
+fun Modifier.verticalFeatherEdge(
+    listState: LazyListState,
+    edgeHeight: Dp = 18.dp,
+): Modifier = verticalFeatherEdge(
+    showTop = listState.canScrollBackward,
+    showBottom = listState.canScrollForward,
+    edgeHeight = edgeHeight,
+)
+
+/**
+ * 带上下边缘柔焦羽化的设置页全屏滚动容器: 将底色绘制于外层容器，确保羽化仅作用于滚动内容而不擦透底色。
+ */
+@Composable
+fun ReSettingsScrollContainer(
+    modifier: Modifier = Modifier,
+    backgroundColor: Color = Color.Transparent,
+    edgeHeight: Dp = 24.dp,
+    horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val scrollState = rememberScrollState()
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(backgroundColor),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalFeatherEdge(scrollState, edgeHeight = edgeHeight)
+                .verticalScroll(scrollState),
+            horizontalAlignment = horizontalAlignment,
+            content = content,
         )
     }
 }

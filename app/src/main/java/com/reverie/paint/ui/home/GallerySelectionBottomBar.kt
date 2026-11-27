@@ -198,7 +198,7 @@ internal fun CardSelectionBadge(
         modifier = modifier,
     ) {
         val bgColor by animateColorAsState(
-            targetValue = if (isSelected) colors.accent else Color.Black.copy(alpha = 0.45f),
+            targetValue = if (isSelected) colors.accent else Color(0xFF141418).copy(alpha = 0.48f),
             animationSpec = tween(180),
             label = "BadgeBgColor",
         )
@@ -215,7 +215,7 @@ internal fun CardSelectionBadge(
                 .shadow(4.dp, CircleShape)
                 .clip(CircleShape)
                 .background(bgColor)
-                .border(1.5.dp, Color.White.copy(alpha = 0.9f), CircleShape),
+                .border(1.5.dp, Color.White.copy(alpha = 0.92f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             AnimatedVisibility(
@@ -226,7 +226,7 @@ internal fun CardSelectionBadge(
                 Icon(
                     painter = painterResource(R.drawable.ic_check),
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = colors.onAccent,
                     modifier = Modifier.size(15.dp),
                 )
             }

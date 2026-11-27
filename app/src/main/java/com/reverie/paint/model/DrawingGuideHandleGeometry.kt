@@ -25,6 +25,9 @@ object DrawingGuideHandleGeometry {
     /** 3D 透视原点轨道柄命中半径 (原无距离判定导致全屏拦截)。 */
     const val PERSPECTIVE_3D_ORBIT_HIT_RADIUS_DP = 20f
 
+    /** 2D/等轴测网格位置与角度手柄命中半径。 */
+    const val GRID_HANDLE_HIT_RADIUS_DP = 20f
+
     /** 对称轴旋转归零判定容差 (度)。 */
     const val SYMMETRY_AXIS_LOCK_TOLERANCE_DEG = 0.01f
 
@@ -96,5 +99,21 @@ object DrawingGuideHandleGeometry {
         val norm = ((rotationDeg % 180f) + 180f) % 180f
         return norm < SYMMETRY_AXIS_LOCK_TOLERANCE_DEG ||
             (180f - norm) < SYMMETRY_AXIS_LOCK_TOLERANCE_DEG
+    }
+
+    fun gridOriginDocPos(docWidth: Int, docHeight: Int, guide: DrawingGuideConfig): Point2D {
+        val ox = guide.gridOffsetX.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f
+        val oy = guide.gridOffsetY.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f
+        return Point2D(x = docWidth * ox, y = docHeight * oy)
+    }
+
+    fun gridRotationHandleDocPos(docWidth: Int, docHeight: Int, guide: DrawingGuideConfig): Point2D {
+        val origin = gridOriginDocPos(docWidth, docHeight, guide)
+        val rotRad = (guide.gridRotationDeg % 360f) * (PI.toFloat() / 180f)
+        val handleDist = minOf(docWidth, docHeight) * 0.28f
+        return Point2D(
+            x = origin.x + cos(rotRad) * handleDist,
+            y = origin.y + sin(rotRad) * handleDist,
+        )
     }
 }

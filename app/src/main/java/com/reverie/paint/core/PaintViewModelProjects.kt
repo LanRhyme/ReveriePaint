@@ -21,6 +21,13 @@ import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.AutoSaveSnapshot
 import com.reverie.paint.model.FrontBufferQuiet
+import com.reverie.paint.model.ProjectRenameError
+import com.reverie.paint.model.ProjectRenameResult
+import com.reverie.paint.model.checkProjectRenameError
+import com.reverie.paint.model.hasArtworkNameConflictInDir
+import com.reverie.paint.model.renameProjectFileSafely
+import com.reverie.paint.model.resolveUniqueMoveDestination
+import com.reverie.paint.model.validateProjectName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -125,6 +132,10 @@ internal fun PaintViewModel.saveProject(
     name: String,
     onComplete: (() -> Unit)? = null,
 ) {
+    if (isCollabFullSaveRestricted()) {
+        showActionToast(R.string.collab_own_only_in_room_blocked, R.drawable.ic_lock)
+        return
+    }
     val fileToSave =
         currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true && !it.name.contains(".autosave") }
             ?: run {
@@ -329,11 +340,12 @@ internal fun PaintViewModel.saveProject(
 }
 
 internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
+    if (isCollabFullSaveRestricted()) return
     if (isAutoSaving || isBlockingLoading) return
     val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
     if (touchView?.isInteracting == true || touchView?.isTransformActive == true) return
 
-    val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
+    val name = docName.ifBlank { getString(R.string.project_default_name).ifBlank { "Untitled Artwork" } }
     val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
     val requiredSpace = estimateProjectSaveBytes(
         docWidth,
@@ -552,8 +564,9 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
 
 internal fun PaintViewModel.emergencySaveOnCrash() {
     if (currentPage != Page.PAINTING) return
+    if (isCollabFullSaveRestricted()) return
     try {
-        val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
+        val name = docName.ifBlank { getString(R.string.project_default_name).ifBlank { "Untitled Artwork" } }
         val emergencyFile = File(autoSaveDir(), "$name.emergency.revp")
         val masterPath = currentProjectFile?.takeIf { !it.contains(".autosave") && !it.contains(".emergency") } ?: ""
         val layers3DJson = active3DLayers.values.joinToString(",") { st ->
@@ -591,7 +604,7 @@ internal fun PaintViewModel.emergencySaveOnCrash() {
             AutoSaveHistoryManager.recordSnapshot(
                 context = appContext,
                 sourceRevpFile = emergencyFile,
-                displayName = "$name (崩溃抢救)",
+                displayName = getString(R.string.auto_save_emergency_display_name, name),
                 masterPath = masterPath,
                 strokeCount = totalStrokes,
                 layerCount = layers.size,
@@ -632,14 +645,18 @@ internal fun PaintViewModel.restoreAutoSaveSnapshot(snapshot: AutoSaveSnapshot, 
 
     val targetFile: File
     val projectName: String
-    val cleanName = snapshot.displayName.removeSuffix(" (崩溃抢救)").removeSuffix(" (Emergency Rescue)")
+    val localizedEmergencySuffix = " (${getString(R.string.auto_save_badge_emergency)})"
+    val cleanName = snapshot.displayName
+        .removeSuffix(localizedEmergencySuffix)
+        .removeSuffix(" (崩溃抢救)")
+        .removeSuffix(" (Emergency Rescue)")
     if (asCopy) {
         val rootDir = projectDir()
-        var candidateName = "$cleanName (副本)"
+        var candidateName = getString(R.string.project_default_copy_name, cleanName)
         var candidateFile = File(rootDir, "$candidateName.revp")
         var copyIdx = 2
         while (candidateFile.exists()) {
-            candidateName = "$cleanName (副本 $copyIdx)"
+            candidateName = getString(R.string.project_default_copy_name_indexed, cleanName, copyIdx)
             candidateFile = File(rootDir, "$candidateName.revp")
             copyIdx++
         }
@@ -669,7 +686,7 @@ internal fun PaintViewModel.restoreAutoSaveSnapshot(snapshot: AutoSaveSnapshot, 
 }
 
 internal fun PaintViewModel.discardAndExit() {
-    val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
+    val name = docName.ifBlank { getString(R.string.project_default_name).ifBlank { "Untitled Artwork" } }
     // 1. 删除本次会话产生的所有自动保存临时草稿与抢救文件
     val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
     if (autoSaveFile.exists()) {
@@ -720,6 +737,7 @@ internal fun PaintViewModel.openProjectFromGallery(
 /** 画廊转场蓄力期间发生工程加载失败时安全退回画廊 (不触发返回收拢波, 避免暴露空白画布)。 */
 internal fun PaintViewModel.abortFailedGalleryLoadToHome() {
     isBlockingLoading = false
+    collab.pendingCreateMode = false
     cancelAwaitingFirstFrameAfterLoad()
     pendingCanvasOrientation = null
     currentProjectFile = null
@@ -796,6 +814,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 "h" to docHeight.toLong(),
             )
             if (!documentLoaded) {
+                collab.pendingCreateMode = false
                 Breadcrumbs.record("IO", "loadProject FAILED for: ${p.name}")
                 isBlockingLoading = false
                 if (!suppressPaintingLoadingOverlay) {
@@ -926,6 +945,9 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             beginAwaitingFirstFrameAfterLoad()
             lastLoadProjectSucceeded = true
             loadProjectOutcomeVersion++
+            if (collab.pendingCreateMode) {
+                hostRoomOnCreatedCanvas(docWidth, docHeight)
+            }
             if (isRecovered) {
                 showActionToast(R.string.toast_project_restored_autosave, R.drawable.ic_save)
             } else if (isHealed) {
@@ -1130,6 +1152,20 @@ internal fun generateDefaultStackName(
     }
 }
 
+private fun PaintViewModel.moveSingleProjectFile(srcFile: File, destDir: File) {
+    if (!srcFile.exists()) return
+    val destFile = resolveUniqueMoveDestination(srcFile, destDir) ?: return
+    if (destFile.exists()) return
+    if (srcFile.renameTo(destFile)) {
+        referenceStore.move(srcFile, destFile)
+        renameTimelapseData(oldFile = srcFile, newFile = destFile)
+        projectMetaCache.remove(srcFile.absolutePath)
+        projectMetaCache.remove(destFile.absolutePath)
+        dropProjectThumbCache(srcFile.nameWithoutExtension)
+        dropProjectThumbCache(destFile.nameWithoutExtension)
+    }
+}
+
 internal fun PaintViewModel.moveProjectToFolder(
     p: com.reverie.paint.model.Project,
     targetFolderName: String?,
@@ -1139,11 +1175,7 @@ internal fun PaintViewModel.moveProjectToFolder(
     val root = projectDir()
     val destDir = if (targetFolderName.isNullOrBlank()) root else File(root, targetFolderName)
     if (!destDir.exists()) destDir.mkdirs()
-    val destFile = File(destDir, srcFile.name)
-    if (srcFile.renameTo(destFile)) {
-        referenceStore.move(srcFile, destFile)
-        renameTimelapseData(oldFile = srcFile, newFile = destFile)
-    }
+    moveSingleProjectFile(srcFile, destDir)
     refreshProjects()
 }
 
@@ -1156,14 +1188,7 @@ internal fun PaintViewModel.moveProjectsToFolder(
     if (!destDir.exists()) destDir.mkdirs()
     projects.forEach { p ->
         if (!p.isFolder) {
-            val srcFile = File(p.filePath)
-            if (srcFile.exists()) {
-                val destFile = File(destDir, srcFile.name)
-                if (srcFile.renameTo(destFile)) {
-                    referenceStore.move(srcFile, destFile)
-                    renameTimelapseData(oldFile = srcFile, newFile = destFile)
-                }
-            }
+            moveSingleProjectFile(File(p.filePath), destDir)
         }
     }
     refreshProjects()
@@ -1242,31 +1267,116 @@ internal fun PaintViewModel.deleteProject(p: com.reverie.paint.model.Project) {
     refreshProjects()
 }
 
+private fun PaintViewModel.renameConflictContext(
+    p: com.reverie.paint.model.Project,
+    file: File,
+): Pair<List<File>, Set<String>> {
+    if (p.isFolder) return emptyList<File>() to emptySet()
+    val autoDir = autoSaveDir()
+    val rootDir = projectDir()
+    val parentCanonical = file.parentFile?.canonicalFile
+    val extraDirs = when {
+        parentCanonical == autoDir.canonicalFile -> {
+            val galleryDir = p.masterFilePath
+                .takeIf { it.isNotBlank() }
+                ?.let { File(it).parentFile }
+                ?.takeIf { it.exists() && it.isDirectory }
+                ?: currentFolder?.let { File(it.filePath) }?.takeIf { it.exists() && it.isDirectory }
+                ?: rootDir
+            listOf(galleryDir)
+        }
+        parentCanonical == rootDir.canonicalFile -> listOf(autoDir)
+        else -> emptyList()
+    }
+    val extraNames = projects
+        .asSequence()
+        .filter { !it.isFolder && it.isAutoSaved && it.filePath != p.filePath }
+        .map { it.name }
+        .toSet()
+    return extraDirs to extraNames
+}
+
+internal fun PaintViewModel.validateProjectRename(
+    p: com.reverie.paint.model.Project,
+    newName: String,
+): ProjectRenameError? {
+    val file = File(p.filePath)
+    val (extraDirs, extraNames) = renameConflictContext(p, file)
+    return checkProjectRenameError(
+        source = file,
+        isFolder = p.isFolder,
+        newName = newName,
+        extraConflictDirs = extraDirs,
+        extraConflictNames = extraNames,
+    )
+}
+
+internal fun PaintViewModel.validateSaveAsName(newName: String): ProjectRenameError? {
+    validateProjectName(newName)?.let { return it }
+    val trimmed = newName.trim()
+    val currentFile = currentProjectFile
+        ?.let { File(it) }
+        ?.takeIf { it.parentFile?.exists() == true && !it.name.contains(".autosave") }
+    val targetDir = currentFile?.parentFile
+        ?: currentFolder?.let { File(it.filePath) }?.takeIf { it.exists() && it.isDirectory }
+        ?: projectDir()
+    val finalFile = File(targetDir, "$trimmed.revp")
+    if (currentFile != null && finalFile.absolutePath == currentFile.absolutePath) {
+        return null
+    }
+    if (finalFile.exists() || hasArtworkNameConflictInDir(targetDir, trimmed, ignoreFile = currentFile)) {
+        return ProjectRenameError.ALREADY_EXISTS
+    }
+    return null
+}
+
 internal fun PaintViewModel.renameProject(
     p: com.reverie.paint.model.Project,
     newName: String,
-) {
+): ProjectRenameResult {
     val file = File(p.filePath)
-    if (file.exists()) {
-        val target =
-            if (p.isFolder) {
-                File(file.parentFile, newName.trim())
-            } else {
-                File(file.parentFile, "${newName.trim()}.${file.extension}")
+    val (extraDirs, extraNames) = renameConflictContext(p, file)
+    val result = renameProjectFileSafely(
+        source = file,
+        isFolder = p.isFolder,
+        newName = newName,
+        extraConflictDirs = extraDirs,
+        extraConflictNames = extraNames,
+    )
+    if (result is ProjectRenameResult.Success) {
+        val oldFile = result.oldFile
+        val target = result.newFile
+        referenceStore.move(oldFile, target)
+        projectMetaCache.remove(oldFile.absolutePath)
+        projectMetaCache.remove(target.absolutePath)
+        if (p.isFolder) {
+            renameTimelapseFolder(p.name, target.name)
+            if (currentFolder?.filePath == oldFile.absolutePath) {
+                currentFolder = currentFolder?.copy(
+                    name = target.name,
+                    filePath = target.absolutePath,
+                    folderPath = target.absolutePath,
+                )
             }
-        if (file.renameTo(target)) {
-            referenceStore.move(file, target)
-            if (p.isFolder) {
-                renameTimelapseFolder(p.name, newName.trim())
-            } else {
-                renameTimelapseData(oldFile = file, newFile = target)
-                // 缩略图缓存按工程名索引: 旧名的缓存留着不仅是垃圾, 改回旧名时会命中
-                // 改名前的旧预览 (缓存并没随 .revp 变过)。
-                dropProjectThumbCache(file.nameWithoutExtension)
+        } else {
+            renameTimelapseData(oldFile = oldFile, newFile = target)
+            // 缩略图缓存按工程名索引: 旧名与目标名缓存都清掉, 避免改名后命中历史同名预览。
+            dropProjectThumbCache(oldFile.nameWithoutExtension)
+            dropProjectThumbCache(target.nameWithoutExtension)
+            oldFile.parentFile?.let { parentDir ->
+                val coverFile = File(parentDir, ".cover")
+                if (coverFile.isFile) {
+                    runCatching {
+                        if (coverFile.readText().trim() == oldFile.name) {
+                            coverFile.writeText(target.name)
+                        }
+                    }
+                }
             }
         }
+        refreshProjects()
     }
-    refreshProjects()
+    return result
 }
 
 internal fun PaintViewModel.duplicateProject(p: com.reverie.paint.model.Project) {
@@ -1313,7 +1423,6 @@ private fun PaintViewModel.duplicateProjectFiles(
     if (isBlockingLoading) return
     val sources = projects.filter { !it.isFolder }
     if (sources.isEmpty()) return
-    val copySuffix = if (LanguageManager.isChinese()) "副本" else "Copy"
     isBlockingLoading = true
     blockingLoadingMessage = getString(R.string.project_copying_progress, 1, sources.size)
     viewModelScope.launch {
@@ -1329,7 +1438,7 @@ private fun PaintViewModel.duplicateProjectFiles(
                     try {
                         check(source.isFile && source.length() > 0L) { "Source is missing or empty" }
                         val directory = source.parentFile ?: error("Source has no parent directory")
-                        var name = "${project.name} $copySuffix"
+                        var name = getString(R.string.project_default_copy_name, project.name)
                         var counter = 2
                         // Reserve the destination without replacing an existing artwork.
                         while (true) {
@@ -1339,7 +1448,7 @@ private fun PaintViewModel.duplicateProjectFiles(
                                 ownsTarget = true
                                 break
                             }
-                            name = "${project.name} $copySuffix ${counter++}"
+                            name = getString(R.string.project_default_copy_name_indexed, project.name, counter++)
                         }
                         source.inputStream().use { input ->
                             requireNotNull(target).outputStream().use { output -> input.copyTo(output) }
@@ -1401,9 +1510,18 @@ fun shareProjectFile(context: android.content.Context, p: com.reverie.paint.mode
             putExtra(android.content.Intent.EXTRA_STREAM, uri)
             addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(android.content.Intent.createChooser(intent, "分享作品: ${p.name}"))
+        context.startActivity(
+            android.content.Intent.createChooser(
+                intent,
+                context.getString(R.string.project_share_chooser_single, p.name),
+            ),
+        )
     } catch (e: Exception) {
-        android.widget.Toast.makeText(context, "分享失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(
+            context,
+            context.getString(R.string.project_share_failed, e.message.orEmpty()),
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
     }
 }
 
@@ -1434,9 +1552,18 @@ fun shareProjectFiles(context: android.content.Context, projects: List<com.rever
             putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
             addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(android.content.Intent.createChooser(intent, "批量分享 (${uris.size} 个作品)"))
+        context.startActivity(
+            android.content.Intent.createChooser(
+                intent,
+                context.getString(R.string.project_share_chooser_batch, uris.size),
+            ),
+        )
     } catch (e: Exception) {
-        android.widget.Toast.makeText(context, "批量分享失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(
+            context,
+            context.getString(R.string.project_share_batch_failed, e.message.orEmpty()),
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
     }
 }
 
@@ -1455,7 +1582,7 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
     var dpi = 300
     var layerCount = 1
     var selectedLayerIndex = -1
-    var colorModeStr = "RGB 8位"
+    var colorModeStr = "RGB 8-bit"
     var previewPath = ""
     var hasRec = false
     var masterPath = ""
@@ -1478,7 +1605,7 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
                     dpi = json.optInt("dpi", 300)
                     strokes = json.optInt("strokeCount", 0)
                     elapsed = json.optLong("elapsedSeconds", 0L)
-                    colorModeStr = json.optString("colorMode", "RGB 8位")
+                    colorModeStr = json.optString("colorMode", "RGB 8-bit")
                     layerCount = json.optJSONArray("layers")?.length() ?: 1
                     selectedLayerIndex = json.optInt("selectedLayerIndex", json.optInt("activeLayerIndex", json.optInt("currentLayerIndex", -1)))
                     masterPath = json.optString("masterFilePath", "")
@@ -1754,6 +1881,12 @@ internal fun PaintViewModel.exportDocument(
     onSuccess: (java.io.File) -> Unit,
     onError: (String) -> Unit = {},
 ) {
+    if (isCollabFullSaveRestricted()) {
+        val msg = getString(R.string.collab_own_only_in_room_blocked)
+        showActionToast(msg, R.drawable.ic_lock)
+        onError(msg)
+        return
+    }
     val fmt = format.lowercase()
     if (isTypographyEditing) {
         commitTypographyToCanvas()
@@ -2074,15 +2207,16 @@ internal fun PaintViewModel.generateNextProjectName(): String {
     }
 
     var index = 1
-    val isZh = LanguageManager.isChinese()
-    val candidate = if (isZh) "未命名作品" else "Untitled Artwork"
-    if (!existingNames.contains(candidate.lowercase())) {
-        return candidate
+    val base = getString(R.string.project_default_name).ifBlank { "Untitled Artwork" }
+    if (!existingNames.contains(base.lowercase())) {
+        return base
     }
-    while (existingNames.contains("$candidate $index".lowercase())) {
+    var candidate = getString(R.string.project_default_name_indexed, index)
+    while (existingNames.contains(candidate.lowercase())) {
         index++
+        candidate = getString(R.string.project_default_name_indexed, index)
     }
-    return "$candidate $index"
+    return candidate
 }
 
 internal fun PaintViewModel.startPainting(
@@ -2193,11 +2327,11 @@ internal fun PaintViewModel.startPainting(
                 renderH = h
                 displayBufferInvalid = true
                 mainHandler.post { savedSelections.clear() }
-                if (!LanguageManager.isChinese()) {
-                    if (ReverieCoreBridge.layerCount() >= 2) {
-                        ReverieCoreBridge.setLayerName(0, "Background")
-                        ReverieCoreBridge.setLayerName(1, "Paint Layer 1")
-                    }
+                val bgName = getString(R.string.layer_default_background)
+                val layer1Name = getString(R.string.layer_default_paint_layer, 1)
+                if (ReverieCoreBridge.layerCount() >= 2) {
+                    ReverieCoreBridge.setLayerName(0, bgName)
+                    ReverieCoreBridge.setLayerName(1, layer1Name)
                 }
                 if (initialBitmap != null) {
                     val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(initialBitmap)

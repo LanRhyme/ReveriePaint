@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.AssistedDrawingGeometry
 import com.reverie.paint.model.FisheyeGuideGeometry
 import com.reverie.paint.model.GuideMode
 import com.reverie.paint.model.Point2D
@@ -667,6 +668,70 @@ fun DrawingGuidePanel(
                                 range = 0.1f..1f,
                                 value = guide.opacity,
                                 onValue = { vm.drawingGuide = guide.copy(opacity = it) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+
+                        val normRotDeg = AssistedDrawingGeometry.normalizeGridRotationDeg(guide.gridRotationDeg)
+                        SegmentedOptionSelector(
+                            options = listOf(
+                                0 to "0°",
+                                30 to "30°",
+                                45 to "45°",
+                                60 to "60°",
+                            ),
+                            selectedKey = normRotDeg.roundToInt(),
+                            onSelect = { vm.drawingGuide = guide.copy(gridRotationDeg = it.toFloat()) },
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CompactSliderItem(
+                                label = stringResource(R.string.guide_grid_rotation),
+                                valueText = "${normRotDeg.roundToInt()}°",
+                                range = 0f..180f,
+                                value = normRotDeg,
+                                onValue = {
+                                    vm.drawingGuide = guide.copy(
+                                        gridRotationDeg = AssistedDrawingGeometry.normalizeGridRotationDeg(it),
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                            CompactToggleChip(
+                                label = stringResource(R.string.guide_grid_reset),
+                                selected = false,
+                                onClick = {
+                                    vm.drawingGuide = guide.copy(
+                                        gridOffsetX = 0.5f,
+                                        gridOffsetY = 0.5f,
+                                        gridRotationDeg = 0f,
+                                    )
+                                },
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CompactSliderItem(
+                                label = stringResource(R.string.guide_grid_offset_x),
+                                valueText = "${(guide.gridOffsetX * 100f).roundToInt()}%",
+                                range = 0f..1f,
+                                value = guide.gridOffsetX,
+                                onValue = { vm.drawingGuide = guide.copy(gridOffsetX = it) },
+                                modifier = Modifier.weight(1f),
+                            )
+                            CompactSliderItem(
+                                label = stringResource(R.string.guide_grid_offset_y),
+                                valueText = "${(guide.gridOffsetY * 100f).roundToInt()}%",
+                                range = 0f..1f,
+                                value = guide.gridOffsetY,
+                                onValue = { vm.drawingGuide = guide.copy(gridOffsetY = it) },
                                 modifier = Modifier.weight(1f),
                             )
                         }

@@ -13,6 +13,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.platform.LocalDensity
@@ -43,6 +44,23 @@ object Glass {
     /** 弹出层：对话框/浮动弹窗，更透更虚 */
     @Composable
     fun popupStyle(alpha: Float = 0.88f): HazeStyle = style(alpha)
+
+    /** 主页悬浮胶囊/底栏：兼顾可读性与真实背景模糊的磨砂玻璃 */
+    @Composable
+    fun dockStyle(alpha: Float? = null): HazeStyle {
+        val isDark = Morandi.panel.luminance() < 0.5f
+        val effectiveAlpha = (alpha ?: if (isDark) 0.60f else 0.68f).coerceIn(0.05f, 0.96f)
+        val bg = Morandi.bg
+        val tintColor = Morandi.panel.copy(alpha = effectiveAlpha)
+        return remember(bg, tintColor) {
+            HazeStyle(
+                backgroundColor = bg,
+                tint = HazeTint(tintColor),
+                blurRadius = 26.dp,
+                noiseFactor = 0.03f,
+            )
+        }
+    }
 
     @Composable
     private fun style(alpha: Float): HazeStyle {

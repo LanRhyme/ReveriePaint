@@ -9,6 +9,7 @@ import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import com.reverie.paint.model.UiAnimationSpeed
 import com.reverie.paint.ui.theme.Motion
 import kotlinx.coroutines.delay
 
@@ -43,29 +44,41 @@ internal fun rememberGalleryEntrance(
     index: Int,
     skipAnimation: Boolean = false,
 ): Animatable<Float, AnimationVector1D> {
-    val cascade = !skipAnimation && index < ENTRANCE_CASCADE_LIMIT
+    val speed = Motion.currentSpeed
+    val instant = skipAnimation || speed == UiAnimationSpeed.OFF
+    val cascade = !instant && index < ENTRANCE_CASCADE_LIMIT
     val progress = remember(key) {
         Animatable(if (cascade && !tracker.hasEntered(key)) 0f else 1f)
     }
-    LaunchedEffect(key, skipAnimation) {
-        if (skipAnimation) {
+    LaunchedEffect(key, instant) {
+        if (instant) {
             tracker.markEntered(key)
             if (progress.value < 1f) progress.snapTo(1f)
             return@LaunchedEffect
         }
         if (!cascade || !tracker.markEntered(key)) return@LaunchedEffect
-        val delayMs = (index * ENTRANCE_STAGGER_MS).coerceAtMost(ENTRANCE_MAX_STAGGER_MS)
+        val delayMs = when (speed) {
+            UiAnimationSpeed.FAST -> (index * ENTRANCE_STAGGER_FAST_MS).coerceAtMost(ENTRANCE_MAX_STAGGER_FAST_MS)
+            UiAnimationSpeed.NORMAL -> (index * ENTRANCE_STAGGER_MS).coerceAtMost(ENTRANCE_MAX_STAGGER_MS)
+            UiAnimationSpeed.OFF -> 0
+        }
         if (delayMs > 0) delay(delayMs.toLong())
         progress.animateTo(1f, Motion.enterSpring())
     }
     return progress
 }
 
-/** 首屏参与入场级联的最大索引 (2 列约 6 行) */
-private const val ENTRANCE_CASCADE_LIMIT = 12
+/** 首屏参与入场级联的最大索引 */
+private const val ENTRANCE_CASCADE_LIMIT = 14
 
 /** 相邻卡片入场的时间差 (毫秒) */
-private const val ENTRANCE_STAGGER_MS = 22
+private const val ENTRANCE_STAGGER_MS = 26
 
 /** 整批入场的最大错峰时长 (毫秒) */
-private const val ENTRANCE_MAX_STAGGER_MS = 180
+private const val ENTRANCE_MAX_STAGGER_MS = 210
+
+/** 极速模式下相邻卡片入场时间差 (毫秒) */
+private const val ENTRANCE_STAGGER_FAST_MS = 10
+
+/** 极速模式下最大错峰时长 (毫秒) */
+private const val ENTRANCE_MAX_STAGGER_FAST_MS = 70

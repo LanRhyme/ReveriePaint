@@ -42,6 +42,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import com.reverie.paint.ui.components.ReSettingsScrollContainer
+import com.reverie.paint.ui.components.verticalFeatherEdge
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -183,9 +185,13 @@ fun SettingsPageContent(
                     )
                 }
 
+                val navScroll = rememberScrollState()
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalFeatherEdge(navScroll, edgeHeight = 16.dp)
+                        .verticalScroll(navScroll),
                 ) {
                     SettingMasterNavRow(
                         iconRes = R.drawable.ic_settings,
@@ -363,12 +369,8 @@ private fun SettingsMainPage(
 ) {
     val colors = Theme.current
 
-    Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(if (hasCustomBg) Color.Transparent else colors.bg)
-                .verticalScroll(rememberScrollState()),
+    ReSettingsScrollContainer(
+        backgroundColor = if (hasCustomBg) Color.Transparent else colors.bg,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Column(

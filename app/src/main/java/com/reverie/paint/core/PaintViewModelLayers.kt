@@ -5,6 +5,7 @@
 package com.reverie.paint.core
 
 import android.graphics.Bitmap
+import androidx.annotation.StringRes
 import com.reverie.paint.R
 import com.reverie.paint.model.LayerCollabPermission
 import com.reverie.paint.model.LayerMaskType
@@ -304,11 +305,10 @@ internal fun PaintViewModel.notifyLayerChanged(
 }
 
 internal fun PaintViewModel.generateDefaultLayerName(): String {
-    val isZh = LanguageManager.isChinese()
-    val prefix = if (isZh) "颜料图层" else "Paint Layer"
+    val base = getString(R.string.layer_default_paint_layer_base).ifBlank { "Paint Layer" }
     val existing = layers.map { it.name }
     var idx = 1
-    val regex = Regex("""^(?:颜料图层|Paint Layer)\s*(\d+)$""", RegexOption.IGNORE_CASE)
+    val regex = Regex("""^(?:${Regex.escape(base)}|颜料图层|Paint Layer)\s*(\d+)$""", RegexOption.IGNORE_CASE)
     for (name in existing) {
         val match = regex.find(name.trim())
         if (match != null) {
@@ -316,15 +316,22 @@ internal fun PaintViewModel.generateDefaultLayerName(): String {
             if (num >= idx) idx = num + 1
         }
     }
-    return "$prefix $idx"
+    return getString(R.string.layer_default_paint_layer, idx).ifBlank { "$base $idx" }
 }
 
-internal fun PaintViewModel.generateDefaultFillLayerName(): String {
-    val isZh = LanguageManager.isChinese()
-    val prefix = if (isZh) "填充图层" else "Fill Layer"
+private fun PaintViewModel.generateIndexedLayerName(
+    @StringRes baseRes: Int,
+    @StringRes indexedRes: Int,
+    legacyBaseZh: String,
+    legacyBaseEn: String,
+): String {
+    val base = getString(baseRes).ifBlank { legacyBaseEn }
     val existing = layers.map { it.name }
     var idx = 1
-    val regex = Regex("""^(?:填充图层|Fill Layer)\s*(\d+)?$""", RegexOption.IGNORE_CASE)
+    val regex = Regex(
+        """^(?:${Regex.escape(base)}|${Regex.escape(legacyBaseZh)}|${Regex.escape(legacyBaseEn)})\s*(\d+)?$""",
+        RegexOption.IGNORE_CASE,
+    )
     var hasPlain = false
     for (name in existing) {
         val match = regex.find(name.trim())
@@ -338,74 +345,20 @@ internal fun PaintViewModel.generateDefaultFillLayerName(): String {
             }
         }
     }
-    return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
+    return if (!hasPlain && idx == 1) base else getString(indexedRes, idx).ifBlank { "$base $idx" }
 }
 
-internal fun PaintViewModel.generateDefaultFilterLayerName(): String {
-    val isZh = LanguageManager.isChinese()
-    val prefix = if (isZh) "滤镜图层" else "Filter Layer"
-    val existing = layers.map { it.name }
-    var idx = 1
-    val regex = Regex("""^(?:滤镜图层|Filter Layer)\s*(\d+)?$""", RegexOption.IGNORE_CASE)
-    var hasPlain = false
-    for (name in existing) {
-        val match = regex.find(name.trim())
-        if (match != null) {
-            val numStr = match.groupValues[1]
-            if (numStr.isEmpty()) {
-                hasPlain = true
-            } else {
-                val num = numStr.toIntOrNull() ?: 0
-                if (num >= idx) idx = num + 1
-            }
-        }
-    }
-    return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
-}
+internal fun PaintViewModel.generateDefaultFillLayerName(): String =
+    generateIndexedLayerName(R.string.layer_default_fill, R.string.layer_default_fill_indexed, "填充图层", "Fill Layer")
 
-internal fun PaintViewModel.generateDefaultStrokeLayerName(): String {
-    val isZh = LanguageManager.isChinese()
-    val prefix = if (isZh) "描边图层" else "Stroke Layer"
-    val existing = layers.map { it.name }
-    var idx = 1
-    val regex = Regex("""^(?:描边图层|Stroke Layer)\s*(\d+)?$""", RegexOption.IGNORE_CASE)
-    var hasPlain = false
-    for (name in existing) {
-        val match = regex.find(name.trim())
-        if (match != null) {
-            val numStr = match.groupValues[1]
-            if (numStr.isEmpty()) {
-                hasPlain = true
-            } else {
-                val num = numStr.toIntOrNull() ?: 0
-                if (num >= idx) idx = num + 1
-            }
-        }
-    }
-    return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
-}
+internal fun PaintViewModel.generateDefaultFilterLayerName(): String =
+    generateIndexedLayerName(R.string.layer_default_filter, R.string.layer_default_filter_indexed, "滤镜图层", "Filter Layer")
 
-internal fun PaintViewModel.generateDefaultGroupName(): String {
-    val isZh = LanguageManager.isChinese()
-    val prefix = if (isZh) "图层组" else "Group"
-    val existing = layers.map { it.name }
-    var idx = 1
-    val regex = Regex("""^(?:图层组|Group)\s*(\d+)?$""", RegexOption.IGNORE_CASE)
-    var hasPlain = false
-    for (name in existing) {
-        val match = regex.find(name.trim())
-        if (match != null) {
-            val numStr = match.groupValues[1]
-            if (numStr.isEmpty()) {
-                hasPlain = true
-            } else {
-                val num = numStr.toIntOrNull() ?: 0
-                if (num >= idx) idx = num + 1
-            }
-        }
-    }
-    return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
-}
+internal fun PaintViewModel.generateDefaultStrokeLayerName(): String =
+    generateIndexedLayerName(R.string.layer_default_stroke, R.string.layer_default_stroke_indexed, "描边图层", "Stroke Layer")
+
+internal fun PaintViewModel.generateDefaultGroupName(): String =
+    generateIndexedLayerName(R.string.layer_default_group, R.string.layer_default_group_indexed, "图层组", "Group")
 
 internal inline fun PaintViewModel.executeAddLayerSafely(
     wasInsidePanel: Boolean,
@@ -468,7 +421,7 @@ internal fun PaintViewModel.importImageToNewLayer(
     onComplete: () -> Unit = {},
 ) {
     clearLayerSelection()
-    val defaultImportName = if (LanguageManager.isChinese()) "导入图片" else "Imported Image"
+    val defaultImportName = getString(R.string.layer_default_import_image).ifBlank { "Imported Image" }
     val finalName = layerName.ifBlank { defaultImportName }
     val pids = currentPaintingPanelIds()
     val wasInside = pids.isNotEmpty()
@@ -813,7 +766,6 @@ internal fun PaintViewModel.copyLayer(i: Int) {
     val srcLayer = layers.getOrNull(i)
     val src3DState = srcLayer?.let { active3DLayers[it.id] }
     val srcTextState = srcLayer?.let { activeTextLayers[it.id] }
-    val isZh = LanguageManager.isChinese()
     runCore(after = {
         isCopyingLayer = false
         clearLayerSelection()
@@ -833,11 +785,14 @@ internal fun PaintViewModel.copyLayer(i: Int) {
         }
     }) {
         val newIdx = ReverieCoreBridge.copyLayer(i)
-        if (!isZh && newIdx >= 0 && newIdx < ReverieCoreBridge.layerCount()) {
+        if (newIdx >= 0 && newIdx < ReverieCoreBridge.layerCount()) {
             val createdName = ReverieCoreBridge.layerName(newIdx)
-            if (createdName.contains(" 副本")) {
-                val engName = createdName.replace(" 副本", " Copy")
-                ReverieCoreBridge.setLayerName(newIdx, engName)
+            if (createdName.endsWith(" 副本")) {
+                val base = createdName.removeSuffix(" 副本")
+                val localizedName = getString(R.string.project_default_copy_name, base)
+                if (localizedName.isNotBlank() && localizedName != createdName) {
+                    ReverieCoreBridge.setLayerName(newIdx, localizedName)
+                }
             }
         }
     }
@@ -1173,14 +1128,14 @@ internal fun PaintViewModel.setFillLayerColor(index: Int, colorInt: Int) {
 
 internal fun PaintViewModel.stampVisibleLayers() {
     clearLayerSelection()
-    val isZh = LanguageManager.isChinese()
+    val stampName = getString(R.string.layer_default_stamp)
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
     }) {
         val newIdx = ReverieCoreBridge.stampVisibleLayers()
-        if (!isZh && newIdx >= 0) {
-            ReverieCoreBridge.setLayerName(newIdx, "Stamp Visible Layers")
+        if (newIdx >= 0 && stampName.isNotBlank()) {
+            ReverieCoreBridge.setLayerName(newIdx, stampName)
         }
     }
 }

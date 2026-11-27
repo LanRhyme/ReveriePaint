@@ -75,13 +75,6 @@ private const val INITIAL_MIRROR_BRANCH_CAPACITY = 8
 
 internal const val SYMMETRY_SAMPLE_STRIDE = PaintViewModel.STROKE_SAMPLE_STRIDE_WITH_TIME
 
-/** 等轴测辅助导引方向 (30°、150°、90° 垂直方向) */
-internal val ISO_DIRS = arrayOf(
-    Offset(0.8660254f, 0.5f),
-    Offset(0.8660254f, -0.5f),
-    Offset(0f, 1f),
-)
-
 /**
  * C3-2 · 场通路的文档像素预算上限(源纹理 + 场纹理各留一份, 4M px 文档 ≈ 16MB + 8MB)。
  *
@@ -1094,13 +1087,19 @@ class CanvasTouchView(context: Context) : View(context) {
     /** 局部失效开关: 任一安全条件不满足时自动回退全量重绘 */
     var partialInvalidateEnabled: Boolean = true
 
-    internal sealed interface AssistRay {
-        data class Horizontal(val y: Float) : AssistRay
-        data class Vertical(val x: Float) : AssistRay
-        data class VanishingPoint(val vp: Point2D, val dir: Offset) : AssistRay
-        data class Direction(val dir: Offset) : AssistRay
-    }
-    internal var assistLockedRay: AssistRay? = null
+    internal var assistLockedRay: AssistedDrawingGeometry.LockedAssistRay? = null
+    internal var assistFirstScreenX: Float = 0f
+    internal var assistFirstScreenY: Float = 0f
+    internal var assistPendingDocX = FloatArray(32)
+    internal var assistPendingDocY = FloatArray(32)
+    internal var assistPendingPressure = FloatArray(32)
+    internal var assistPendingTiltX = FloatArray(32)
+    internal var assistPendingTiltY = FloatArray(32)
+    internal var assistPendingRot = FloatArray(32)
+    internal var assistPendingTime = LongArray(32)
+    internal var assistPendingCount: Int = 0
+    internal var assistPendingMaxScreenDist: Float = 0f
+    internal var assistPendingFarthestIdx: Int = -1
 
     // 鱼眼吸附: 笔画开始时锁定选定的横/纵曲线或中心射线
     internal var assistFisheyeLocked = false
@@ -1825,8 +1824,7 @@ class CanvasTouchView(context: Context) : View(context) {
         strokeAbortedUntilUp = true
         safeEndSymmetryUndoMacro()
         resetMirrorBranches()
-        assistLockedRay = null
-        resetFisheyeAssist()
+        resetAssistState()
         clearPredictionState(triggerInvalidate = true)
         currentStrokeDocPos = Offset.Zero
         firstDocPos = Offset.Zero
@@ -1847,6 +1845,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 v.touchCancel()
                 resetMirrorBranches()
                 safeEndSymmetryUndoMacro()
+                resetAssistState()
                 clearPredictionState(triggerInvalidate = true)
                 strokeStarted = false
             }
@@ -2086,7 +2085,11 @@ class CanvasTouchView(context: Context) : View(context) {
      */
     internal fun CanvasTouchView.updatePredictedTip(v: PaintViewModel, rawX: Float, rawY: Float) {
         val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
-        if (hasSymmetry || !hasPredictedScreenPoint || !predictedTipEligible(v)) {
+        if (hasSymmetry ||
+            AssistedDrawingGeometry.isDirectionalAssistActive(v.drawingGuide) ||
+            !hasPredictedScreenPoint ||
+            !predictedTipEligible(v)
+        ) {
             realInk.tipWidth = 0f
             return
         }

@@ -17,12 +17,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import com.reverie.paint.BuildConfig
+import com.reverie.paint.R
 import com.reverie.paint.model.AbiMatcher
 import com.reverie.paint.model.DownloadStatus
 import com.reverie.paint.model.MarkdownParser
 import com.reverie.paint.model.ReleaseAsset
 import com.reverie.paint.model.ReleaseInfo
 import com.reverie.paint.model.ReleaseNotesAggregator
+import com.reverie.paint.model.ReleaseNotesLocalizer
 import com.reverie.paint.model.UpdateCheckResult
 import com.reverie.paint.model.VersionComparator
 import kotlinx.coroutines.CoroutineScope
@@ -138,23 +140,31 @@ object UpdateManager {
         isChecking = true
 
         if (isManual) {
-            Toast.makeText(context, "正在检查更新...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.dialog_update_checking), Toast.LENGTH_SHORT).show()
         }
+
+        val preferChinese = ReleaseNotesLocalizer.shouldPreferChinese(
+            LanguageManager.getLocale(context = context),
+        )
 
         scope.launch(Dispatchers.IO) {
             try {
                 val currentVersion = BuildConfig.VERSION_NAME
-                val release = fetchReleaseFromApi(currentVersion)
-                    ?: fetchReleaseFromAtomFeed(currentVersion)
-                    ?: fetchReleaseFromMirrorChyan()
+                val release = fetchReleaseFromApi(currentVersion, preferChinese)
+                    ?: fetchReleaseFromAtomFeed(currentVersion, preferChinese)
+                    ?: fetchReleaseFromMirrorChyan(preferChinese)
 
                 if (release == null) {
                     withContext(Dispatchers.Main) {
                         isChecking = false
-                        val errorMsg = "获取版本信息失败，请检查网络设置"
+                        val errorMsg = context.getString(R.string.dialog_update_fetch_failed)
                         onResult?.invoke(UpdateCheckResult.Error(errorMsg))
                         if (isManual) {
-                            Toast.makeText(context, "检查更新失败: $errorMsg", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.dialog_update_check_failed, errorMsg),
+                                Toast.LENGTH_SHORT,
+                            ).show()
                         }
                     }
                     return@launch
@@ -171,25 +181,34 @@ object UpdateManager {
                     } else {
                         onResult?.invoke(UpdateCheckResult.AlreadyLatest)
                         if (isManual) {
-                            Toast.makeText(context, "当前已是最新版本 (v$currentVersion)", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.dialog_update_already_latest, currentVersion),
+                                Toast.LENGTH_SHORT,
+                            ).show()
                         }
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     isChecking = false
-                    val errorMsg = e.localizedMessage ?: "网络连接异常"
+                    val errorMsg = e.localizedMessage ?: context.getString(R.string.network_error)
                     onResult?.invoke(UpdateCheckResult.Error(errorMsg))
                     if (isManual) {
-                        Toast.makeText(context, "检查更新失败: $errorMsg", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.dialog_update_check_failed, errorMsg),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             }
         }
     }
 
-    private fun fetchReleaseFromApi(currentVersion: String): ReleaseInfo? {
-        return fetchReleaseListFromApi(currentVersion) ?: fetchSingleLatestReleaseFromApi()
+    private fun fetchReleaseFromApi(currentVersion: String, preferChinese: Boolean): ReleaseInfo? {
+        return fetchReleaseListFromApi(currentVersion, preferChinese)
+            ?: fetchSingleLatestReleaseFromApi(preferChinese)
     }
 
     private fun parseReleaseObject(json: JSONObject): ReleaseInfo? {
@@ -235,7 +254,7 @@ object UpdateManager {
         )
     }
 
-    private fun fetchReleaseListFromApi(currentVersion: String): ReleaseInfo? {
+    private fun fetchReleaseListFromApi(currentVersion: String, preferChinese: Boolean): ReleaseInfo? {
         try {
             val request = Request.Builder()
                 .url(GITHUB_RELEASES_LIST_URL)
@@ -262,14 +281,19 @@ object UpdateManager {
             }
 
             val latest = latestRelease ?: return null
-            val mergedNotes = ReleaseNotesAggregator.mergeNewerReleaseNotes(notesPairs, currentVersion)
-            return if (mergedNotes.isNotBlank()) latest.copy(body = mergedNotes) else latest
+            val mergedNotes = ReleaseNotesAggregator.mergeNewerReleaseNotes(
+                notesPairs,
+                currentVersion,
+                preferChinese = preferChinese,
+            )
+            val fallbackBody = ReleaseNotesLocalizer.selectLanguageSection(latest.body, preferChinese)
+            return latest.copy(body = mergedNotes.ifBlank { fallbackBody })
         } catch (_: Exception) {
             return null
         }
     }
 
-    private fun fetchSingleLatestReleaseFromApi(): ReleaseInfo? {
+    private fun fetchSingleLatestReleaseFromApi(preferChinese: Boolean): ReleaseInfo? {
         try {
             val request = Request.Builder()
                 .url(GITHUB_LATEST_RELEASE_URL)
@@ -281,13 +305,16 @@ object UpdateManager {
             if (!response.isSuccessful) return null
 
             val bodyStr = response.body?.string() ?: return null
-            return parseReleaseObject(JSONObject(bodyStr))
+            val parsed = parseReleaseObject(JSONObject(bodyStr)) ?: return null
+            return parsed.copy(
+                body = ReleaseNotesLocalizer.selectLanguageSection(parsed.body, preferChinese),
+            )
         } catch (_: Exception) {
             return null
         }
     }
 
-    private fun fetchReleaseFromAtomFeed(currentVersion: String): ReleaseInfo? {
+    private fun fetchReleaseFromAtomFeed(currentVersion: String, preferChinese: Boolean): ReleaseInfo? {
         try {
             val request = Request.Builder()
                 .url(GITHUB_RELEASES_ATOM_URL)
@@ -365,13 +392,15 @@ object UpdateManager {
             val mergedNotes = ReleaseNotesAggregator.mergeNewerReleaseNotes(
                 entries.map { it.tag to it.body },
                 currentVersion,
+                preferChinese = preferChinese,
             )
+            val fallbackBody = ReleaseNotesLocalizer.selectLanguageSection(first.body, preferChinese)
             val apkAsset = AbiMatcher.buildFallbackApkAsset(first.tag, Build.SUPPORTED_ABIS)
 
             return ReleaseInfo(
                 tagName = first.tag,
                 name = first.tag,
-                body = mergedNotes.ifBlank { first.body },
+                body = mergedNotes.ifBlank { fallbackBody },
                 htmlUrl = first.htmlUrl.ifBlank { "https://github.com/LanRhyme/ReveriePaint/releases/tag/${first.tag}" },
                 publishedAt = first.updated,
                 apkAsset = apkAsset,
@@ -381,7 +410,7 @@ object UpdateManager {
         }
     }
 
-    private fun fetchReleaseFromMirrorChyan(): ReleaseInfo? {
+    private fun fetchReleaseFromMirrorChyan(preferChinese: Boolean): ReleaseInfo? {
         try {
             val request = Request.Builder()
                 .url(MIRRORCHYAN_LATEST_API)
@@ -398,7 +427,10 @@ object UpdateManager {
             val data = json.optJSONObject("data") ?: return null
             val versionName = data.optString("version_name", "")
             if (versionName.isBlank()) return null
-            val releaseNote = data.optString("release_note", "")
+            val releaseNote = ReleaseNotesLocalizer.selectLanguageSection(
+                data.optString("release_note", ""),
+                preferChinese,
+            )
 
             return ReleaseInfo(
                 tagName = versionName,
@@ -418,7 +450,7 @@ object UpdateManager {
      */
     fun startDownload(context: Context, release: ReleaseInfo) {
         val asset = release.apkAsset ?: run {
-            Toast.makeText(context, "未找到有效的 APK 安装包资源", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.dialog_update_no_apk), Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -458,7 +490,7 @@ object UpdateManager {
                     throw IOException("HTTP ${response.code}")
                 }
 
-                val body = response.body ?: throw IOException("下载内容为空")
+                val body = response.body ?: throw IOException(context.getString(R.string.dialog_update_empty_body))
                 val contentLength = body.contentLength()
                 if (contentLength > 0L) {
                     totalBytes = contentLength
@@ -497,7 +529,7 @@ object UpdateManager {
                         installApk(context, targetFile)
                     }
                 } else {
-                    throw IOException("文件命名失败")
+                    throw IOException(context.getString(R.string.dialog_update_rename_failed))
                 }
             } catch (e: Exception) {
                 if (tempFile.exists()) tempFile.delete()
@@ -506,7 +538,7 @@ object UpdateManager {
                         downloadStatus = DownloadStatus.CANCELED
                     } else {
                         downloadStatus = DownloadStatus.FAILED
-                        downloadError = e.localizedMessage ?: "下载失败"
+                        downloadError = e.localizedMessage ?: context.getString(R.string.dialog_update_failed)
                     }
                 }
             } finally {
@@ -543,7 +575,7 @@ object UpdateManager {
      */
     fun installApk(context: Context, apkFile: File) {
         if (!apkFile.exists()) {
-            Toast.makeText(context, "安装包不存在", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.dialog_update_apk_missing), Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -565,14 +597,22 @@ object UpdateManager {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     context.startActivity(settingsIntent)
-                    Toast.makeText(context, "请授予安装未知应用权限后返回安装", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.dialog_update_install_permission),
+                        Toast.LENGTH_LONG,
+                    ).show()
                     return
                 }
             }
 
             context.startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(context, "无法拉起安装器: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                context,
+                context.getString(R.string.dialog_update_install_failed, e.localizedMessage.orEmpty()),
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 }

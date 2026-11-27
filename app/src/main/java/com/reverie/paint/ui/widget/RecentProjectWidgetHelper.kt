@@ -142,7 +142,7 @@ object RecentProjectWidgetHelper {
         var dpi = 300
         var layerCount = 1
         var selectedLayerIndex = -1
-        var colorModeStr = "RGB 8位"
+        var colorModeStr = "RGB 8-bit"
         var previewPath = ""
         var hasRec = false
         var masterPath = ""
@@ -160,7 +160,7 @@ object RecentProjectWidgetHelper {
                         dpi = json.optInt("dpi", 300)
                         strokes = json.optInt("strokeCount", 0)
                         elapsed = json.optLong("elapsedSeconds", 0L)
-                        colorModeStr = json.optString("colorMode", "RGB 8位")
+                        colorModeStr = json.optString("colorMode", "RGB 8-bit")
                         layerCount = json.optJSONArray("layers")?.length() ?: 1
                         selectedLayerIndex = json.optInt("selectedLayerIndex", -1)
                         masterPath = json.optString("masterFilePath", "")

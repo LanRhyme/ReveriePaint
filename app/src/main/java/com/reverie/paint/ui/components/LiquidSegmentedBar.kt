@@ -58,6 +58,7 @@ import com.reverie.paint.ui.theme.Theme
 import kotlinx.coroutines.channels.Channel
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.tanh
@@ -130,25 +131,32 @@ private class SegmentedLensPhysics(initialIndex: Int, private val pressedScale: 
         holdPulseFrames = 0
     }
 
-    fun onGestureDown(downSlot: Int, currentIndex: Int) {
+    fun onGesturePressHold() {
         isHolding = true
         isDragging = false
+        wake()
+    }
+
+    fun onGestureDragStart() {
+        isHolding = true
+        isDragging = true
         holdPulseFrames = 6
-        if (downSlot != currentIndex) {
-            targetValue = downSlot.toFloat()
-        }
         wake()
     }
 
     fun onGestureDrag(dampedPos: Float) {
+        isHolding = true
         isDragging = true
         targetValue = dampedPos
         wake()
     }
 
-    fun onGestureEnd(finalTargetIndex: Int) {
+    fun onGestureEnd(finalTargetIndex: Int, tapPulse: Boolean = false) {
         isHolding = false
         isDragging = false
+        if (tapPulse) {
+            holdPulseFrames = 6
+        }
         targetValue = finalTargetIndex.toFloat()
         wake()
     }
@@ -355,60 +363,88 @@ fun LiquidSegmentedBar(
             .background(trackColor)
             .pointerInput(count) {
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val down = awaitFirstDown(requireUnconsumed = true)
                     val width = trackWidthPx
                     if (width <= 1f || count <= 0) return@awaitEachGesture
                     val slotW = width / count.toFloat()
-                    val dragSlop = min(viewConfiguration.touchSlop * 0.4f, 6.dp.toPx())
-                    val downLocalX = (down.position.x - insetPx).coerceIn(0f, width)
+                    val touchSlop = viewConfiguration.touchSlop
+                    val horizontalDragSlop = max(touchSlop * 0.65f, 8.dp.toPx())
+                    val verticalCancelSlop = touchSlop * 0.6f
+                    val verticalHitPadPx = 12.dp.toPx()
+                    val horizontalHitPadPx = 8.dp.toPx()
+
+                    val downPos = down.position
+                    val downLocalX = (downPos.x - insetPx).coerceIn(0f, width)
                     val downSlot = (downLocalX / slotW).toInt().coerceIn(0, count - 1)
 
-                    var activePointerId = down.id
+                    val activePointerId = down.id
                     var dragging = false
-                    var previewSlot = downSlot
+                    var cancelled = false
+                    var touchedPhysics = false
+                    var tapPulse = false
+                    var previewSlot = latestSelected
                     var committedSlot = latestSelected
                     var dragGrabOffset = 0f
+                    var upPos = downPos
                     var upLocalX = downLocalX
                     var pointerInVerticalRange = true
 
-                    if (downSlot != latestSelected) {
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    if (downSlot == latestSelected) {
+                        physics.onGesturePressHold()
+                        touchedPhysics = true
                     }
-                    physics.onGestureDown(downSlot = downSlot, currentIndex = latestSelected)
 
                     try {
                         while (true) {
                             val event = awaitPointerEvent()
-                            var change = event.changes.firstOrNull { it.id == activePointerId }
-                            if (change == null || !change.pressed) {
-                                val otherPressed = event.changes.firstOrNull { it.pressed }
-                                if (otherPressed != null) {
-                                    activePointerId = otherPressed.id
-                                    change = otherPressed
+                            val change = event.changes.firstOrNull { it.id == activePointerId }
+                            if (change == null) {
+                                cancelled = true
+                                break
+                            }
+                            if (!change.pressed) {
+                                if (change.isConsumed) {
+                                    cancelled = true
                                 } else {
-                                    if (change != null) {
-                                        upLocalX = change.position.x - insetPx
-                                        pointerInVerticalRange =
-                                            change.position.y >= -48f && change.position.y <= size.height + 48f
-                                    }
-                                    break
+                                    upPos = change.position
+                                    upLocalX = change.position.x - insetPx
+                                    pointerInVerticalRange =
+                                        change.position.y in -verticalHitPadPx..(size.height + verticalHitPadPx)
                                 }
+                                break
+                            }
+                            if (change.isConsumed) {
+                                cancelled = true
+                                break
                             }
 
-                            val localX = change.position.x - insetPx
-                            upLocalX = localX
-                            pointerInVerticalRange =
-                                change.position.y >= -48f && change.position.y <= size.height + 48f
+                            val dx = change.position.x - downPos.x
+                            val dy = change.position.y - downPos.y
+                            val absDx = abs(dx)
+                            val absDy = abs(dy)
 
-                            val dxFromDown = localX - downLocalX
-                            if (!dragging && abs(dxFromDown) > dragSlop) {
-                                dragging = true
-                                val activeCenterX = (downSlot + 0.5f) * slotW
-                                dragGrabOffset = (downLocalX - activeCenterX).coerceIn(-slotW * 0.35f, slotW * 0.35f)
+                            if (!dragging) {
+                                if (absDy > touchSlop || (absDy > verticalCancelSlop && absDy > absDx * 1.05f)) {
+                                    cancelled = true
+                                    break
+                                }
+                                if (absDx > horizontalDragSlop && absDx > absDy * 1.35f) {
+                                    dragging = true
+                                    if (downSlot != latestSelected) {
+                                        previewSlot = downSlot
+                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                    val activeCenterX = (previewSlot + 0.5f) * slotW
+                                    dragGrabOffset =
+                                        (downLocalX - activeCenterX).coerceIn(-slotW * 0.35f, slotW * 0.35f)
+                                    physics.onGestureDragStart()
+                                    touchedPhysics = true
+                                }
                             }
 
                             if (dragging) {
                                 change.consume()
+                                val localX = change.position.x - insetPx
                                 val rawPos = (localX - dragGrabOffset - slotW * 0.5f) / slotW
                                 val maxF = (count - 1).toFloat()
                                 val dampedPos = when {
@@ -426,24 +462,31 @@ fun LiquidSegmentedBar(
                             }
                         }
 
-                        val finalTarget = if (dragging) {
-                            previewSlot
-                        } else if (pointerInVerticalRange && upLocalX >= -24f && upLocalX <= width + 24f) {
-                            val tapped = (upLocalX / slotW).toInt().coerceIn(0, count - 1)
-                            if (tapped != previewSlot) {
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        val finalTarget = when {
+                            cancelled -> latestSelected
+                            dragging -> previewSlot
+                            abs(upPos.x - downPos.x) <= touchSlop &&
+                                abs(upPos.y - downPos.y) <= touchSlop &&
+                                pointerInVerticalRange &&
+                                upLocalX in -horizontalHitPadPx..(width + horizontalHitPadPx) -> {
+                                val tapped = (upLocalX / slotW).toInt().coerceIn(0, count - 1)
+                                if (tapped != latestSelected) {
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    tapPulse = true
+                                }
+                                tapped
                             }
-                            tapped
-                        } else {
-                            previewSlot
+                            else -> latestSelected
                         }
 
                         committedSlot = finalTarget
-                        if (finalTarget != latestSelected) {
+                        if (!cancelled && finalTarget != latestSelected) {
                             latestOnSelect(finalTarget)
                         }
                     } finally {
-                        physics.onGestureEnd(committedSlot)
+                        if (touchedPhysics || tapPulse) {
+                            physics.onGestureEnd(committedSlot, tapPulse = tapPulse)
+                        }
                     }
                 }
             }

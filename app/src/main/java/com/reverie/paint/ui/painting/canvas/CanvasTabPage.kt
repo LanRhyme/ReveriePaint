@@ -5,6 +5,7 @@
 package com.reverie.paint.ui.painting.canvas
 
 import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.components.verticalFeatherEdge
 import com.reverie.paint.R
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.reverie.paint.core.*
 import com.reverie.paint.model.MemoryPressureLevel
+import com.reverie.paint.model.ProjectRenameError
 import com.reverie.paint.model.RuntimeMemoryPolicy
 import com.reverie.paint.model.RuntimeMemorySnapshot
 import com.reverie.paint.ui.components.ReSwitch
@@ -199,6 +201,14 @@ internal fun CanvasTabPage(
 
     // Custom Styled Dialog: Save As
     if (showSaveAsDialog) {
+        val saveAsError = remember(saveAsName, vm.docName, vm.currentProjectFile) {
+            vm.validateSaveAsName(saveAsName)
+        }
+        val saveAsErrorText = when (saveAsError) {
+            ProjectRenameError.ALREADY_EXISTS -> stringResource(R.string.home_rename_error_project_exists)
+            ProjectRenameError.INVALID_CHARS -> stringResource(R.string.home_rename_error_invalid_chars)
+            else -> null
+        }
         androidx.compose.ui.window.Dialog(onDismissRequest = { showSaveAsDialog = false }) {
             Box(
                 modifier = Modifier
@@ -219,18 +229,30 @@ internal fun CanvasTabPage(
                         value = saveAsName,
                         onValueChange = { saveAsName = it },
                         singleLine = true,
+                        isError = saveAsErrorText != null,
                         placeholder = { Text(stringResource(R.string.canvas_dialog_save_as_placeholder), color = Morandi.subText) },
                         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Morandi.text,
                             unfocusedTextColor = Morandi.text,
                             focusedBorderColor = Morandi.accent,
                             unfocusedBorderColor = Morandi.border,
+                            errorBorderColor = Morandi.error,
                             focusedContainerColor = Morandi.panelHi,
                             unfocusedContainerColor = Morandi.panelHi,
-                            cursorColor = Morandi.accent
+                            errorContainerColor = Morandi.panelHi,
+                            cursorColor = Morandi.accent,
+                            errorCursorColor = Morandi.error,
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (saveAsErrorText != null) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = saveAsErrorText,
+                            color = Morandi.error,
+                            fontSize = 12.sp,
+                        )
+                    }
                     Spacer(Modifier.height(18.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -241,15 +263,16 @@ internal fun CanvasTabPage(
                         ReTextButton(
                             stringResource(R.string.common_save),
                             onClick = {
-                            val name = saveAsName.trim()
-                            showSaveAsDialog = false
-                            onClose()
-                            if (name.isNotBlank()) {
-                                vm.saveProject(name) {
-                                    android.widget.Toast.makeText(context, resources.getString(R.string.canvas_toast_saved_as, name), android.widget.Toast.LENGTH_SHORT).show()
+                                val name = saveAsName.trim()
+                                if (saveAsError == null && name.isNotBlank()) {
+                                    showSaveAsDialog = false
+                                    onClose()
+                                    vm.saveProject(name) {
+                                        android.widget.Toast.makeText(context, resources.getString(R.string.canvas_toast_saved_as, name), android.widget.Toast.LENGTH_SHORT).show()
+                                    }
                                 }
-                            }
-                        },
+                            },
+                            enabled = saveAsError == null && saveAsName.isNotBlank(),
                             textColor = Morandi.accent,
                             fontWeight = FontWeight.Bold,
                         )
@@ -263,10 +286,12 @@ internal fun CanvasTabPage(
 
 
 
+    val scrollState = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
+            .verticalFeatherEdge(scrollState)
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // Dynamic Document Info in a sleek Morandi card
@@ -410,6 +435,8 @@ internal fun CanvasTabPage(
         }
 
         // 2. 工程与图层卡片 (Project & Layers Group - Zero Border Tiles)
+        val saveRestricted = vm.isCollabFullSaveRestricted()
+        val restrictedMsg = stringResource(R.string.collab_own_only_in_room_blocked)
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = stringResource(R.string.canvas_group_project),
@@ -418,6 +445,31 @@ internal fun CanvasTabPage(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
             )
+            if (saveRestricted) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Morandi.accent.copy(alpha = 0.12f))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_lock),
+                        contentDescription = null,
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Text(
+                        text = restrictedMsg,
+                        color = Morandi.text,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -425,7 +477,12 @@ internal fun CanvasTabPage(
                 CanvasActionTile(
                     icon = R.drawable.ic_save,
                     label = stringResource(R.string.common_save),
+                    dimmed = saveRestricted,
                     onClick = {
+                        if (saveRestricted) {
+                            vm.showActionToast(restrictedMsg, R.drawable.ic_lock)
+                            return@CanvasActionTile
+                        }
                         onClose()
                         vm.saveProject(vm.docName) {
                             android.widget.Toast.makeText(context, resources.getString(R.string.canvas_toast_project_saved, vm.docName), android.widget.Toast.LENGTH_SHORT).show()
@@ -436,7 +493,12 @@ internal fun CanvasTabPage(
                 CanvasActionTile(
                     icon = R.drawable.ic_save_as,
                     label = stringResource(R.string.canvas_action_save_as),
+                    dimmed = saveRestricted,
                     onClick = {
+                        if (saveRestricted) {
+                            vm.showActionToast(restrictedMsg, R.drawable.ic_lock)
+                            return@CanvasActionTile
+                        }
                         saveAsName = vm.docName + "_copy"
                         showSaveAsDialog = true
                     },
@@ -536,13 +598,15 @@ private fun CanvasActionTile(
     modifier: Modifier = Modifier,
     /** 开关类动作的"已开启"态 (如视图翻转), 开启时整体高亮, 一眼能看出当前状态 */
     active: Boolean = false,
+    dimmed: Boolean = false,
     /** 长按回调: 给了就启用长按 (画布翻转用长按 = 完全翻转) */
     onLongClick: (() -> Unit)? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(10.dp)
-    val iconTint = if (active) Morandi.accent else Morandi.icon
-    val labelColor = if (active) Morandi.accent else Morandi.text
+    val contentAlpha = if (dimmed) 0.45f else 1f
+    val iconTint = (if (active) Morandi.accent else Morandi.icon).copy(alpha = contentAlpha)
+    val labelColor = (if (active) Morandi.accent else Morandi.text).copy(alpha = contentAlpha)
 
     Column(
         modifier = modifier

@@ -86,7 +86,7 @@ app/src/main/java/com/reverie/paint/     # 正式(与 debug 共用)代码
 
 app/src/debug/              # debug 专属源集: 仅开发/量测用的代码与文案
                             #   java/.../perf/PerfHud.kt (性能标尺 HUD + 设置入口)
-                            #   res/values{,-en}/strings.xml (这些文案不进正式包)
+                            #   res/values{,-zh-rCN}/strings.xml (这些文案不进正式包)
 app/src/release/            # release 专属源集: 上述功能的同签名空实现 (正式包里不存在)
                             #   见 docs/RENDER-OPTIMIZATION.md §6.2
 
@@ -143,7 +143,7 @@ art/        # 图标素材
 ## 6. Kotlin / Compose 编码规范
 
 - 缩进 4 空格, 行宽 ≤120 (见 `.editorconfig`)
-- **UI 文案统一使用 strings.xml 国际化资源管理** (`stringResource(R.string.*)`), 严禁在 Compose 中硬编码中文字符串字面量; 平时日常编写代码时只需维护简体中文 (`values/strings.xml`) 与英文 (`values-en/strings.xml`), 中文文案尽量少用句号; 日语 (`values-ja/`)、繁体中文 (`values-zh-rTW/`) 与猫猫语 (`values-cat/`) 三种扩展语言只在每次大版本更新发版前或用户明确指示时进行全量增量补全, 平时日常开发无需频繁同步; 主题色一律引用 `ui/theme` 的 Morandi 语义色, 禁止散落硬编码颜色
+- **UI 文案统一使用 strings.xml 国际化资源管理** (`stringResource(R.string.*)`), 严禁在 Compose 中硬编码中文字符串字面量; 平时日常编写代码时只需维护英文默认兜底 (`values/strings.xml`) 与简体中文 (`values-zh-rCN/strings.xml`), 中文文案尽量少用句号; 日语 (`values-ja/`)、繁体中文 (`values-zh-rTW/`) 与猫猫语 (`values-cat/`) 三种扩展语言只在每次大版本更新发版前或用户明确指示时进行全量增量补全, 平时日常开发无需频繁同步; 主题色一律引用 `ui/theme` 的 Morandi 语义色, 禁止散落硬编码颜色
 - 状态管理: ViewModel 用 `mutableStateOf/mutableIntStateOf/...` + `by` 委托; 高频数值 (缩放%/旋转°) 用专用 `mutable*StateOf` 重载避免装箱
 - 偏好读写统一走 `PaintViewModel.prefs` 访问器, 不要在任何地方再写 `getSharedPreferences("paint_prefs", ...)` 字面量 (文件名原先散落 180 处, 拼错一处即静默丢设置); 只有接收 `Context` 形参的工具函数可以直接 `context.getSharedPreferences(...)`
 - ViewModel 过大时按域拆分为同包扩展文件 (如 `PaintViewModelBrush.kt`), 保持类名不变, 不要为拆分而引入新接口层
@@ -232,7 +232,7 @@ Conventional Commits, **中文描述**, 格式:
 - **机械自检必须全绿**: 运行 `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest`, 验证通过后方可推进
 
 ### 3. 多语言本地化增量补全 (大版本发版门禁)
-- **同步扩展语言**: 检查并对比 `values/strings.xml` 与 `values-en/strings.xml`, 对日语 (`values-ja/strings.xml`)、繁体中文 (`values-zh-rTW/strings.xml`) 与猫猫语 (`values-cat/strings.xml`) 进行全量增量补全, 确保大版本发版时多语言覆盖无缺失
+- **同步扩展语言**: 检查并对比 `values/strings.xml` 与 `values-zh-rCN/strings.xml`, 对日语 (`values-ja/strings.xml`)、繁体中文 (`values-zh-rTW/strings.xml`) 与猫猫语 (`values-cat/strings.xml`) 进行全量增量补全, 确保大版本发版时多语言覆盖无缺失
 
 ### 4. 版本号与更新日志撰写
 - **更新版本配置**: 修改 `app/build.gradle.kts` 中的 `versionCode` 与 `versionName`
@@ -240,14 +240,14 @@ Conventional Commits, **中文描述**, 格式:
   - 执行 `git log <last_tag>..HEAD --oneline` 提取自上个正式 tag 以来的全量提交
   - **识别 PR 编号**: 匹配形如 `Merge pull request #<num>` 的合并提交, 或 commit 标题末尾的 `(#<num>)`
   - **查询 PR 贡献者 Handle**: 对涉及的 PR 编号执行 `gh pr view <num> --json author --jq .author.login` 获取作者 GitHub 用户名
-- **生成结构化日志并写入 CHANGELOG.md**:
-  - 在 `CHANGELOG.md` 顶部插入 `## [vX.Y.Z] - YYYY-MM-DD`
-  - 按 `### 新增特性 (Features)` 与 `### 缺陷修复 (Bug Fixes)` 分类 (如有体验/性能调整可追加 `### 体验优化与调整`)
+- **生成结构化双语日志并写入 CHANGELOG**:
+  - 分别在 [CHANGELOG.md](CHANGELOG.md)（英文）与 [CHANGELOG_ZH.md](CHANGELOG_ZH.md)（简体中文）顶部插入 `## [vX.Y.Z] - YYYY-MM-DD`
+  - 英文使用 `### Features`、`### Bug Fixes`、`### Improvements` 分类; 中文使用 `### 新增特性 (Features)`、`### 缺陷修复 (Bug Fixes)`、`### 体验优化与调整` 分类
   - **面向用户、简洁直白**: 每条用一句话说清用户能感知到的变化, 严禁出现类名/函数名/文件名或技术黑话 (如 `GC`、`JNI`、`Lint`、`Compose`、`errno`、`mtime` 等); 工程或性能优化类提交统一改写为实际体感描述 (如"提升冷启动速度"、"减少内存占用")
   - **同版本功能与修复去重**: 在同一版本内新实现的功能及其后续修复提交, 只保留实现该功能的日志条目, 不单独列出对该新功能的修复 (若修复来自社区 PR, 可将署名合并到对应功能条目末尾)
   - **PR 贡献者行内署名**: 凡是通过 Pull Request 引入的条目 (包含维护者与社区贡献者), 须在条目末尾追加 `(by @<username> in #<num>)` (示例: `- **WebDAV 同步**: 支持通过 WebDAV 协议进行云端备份与还原 (by @ChinsaaWei in #16)`)
   - 严禁使用句号与任何表情符号 (emoji), 保持极简清晰
-- **提交版本变更**: 执行 `git add app/build.gradle.kts CHANGELOG.md && git commit -m "chore(release): 发布 X.Y.Z 版本并更新变更日志"`
+- **提交版本变更**: 执行 `git add app/build.gradle.kts CHANGELOG.md CHANGELOG_ZH.md && git commit -m "chore(release): 发布 X.Y.Z 版本并更新变更日志"`
 
 ### 5. 标签与远程推送
 - **打附注标签**: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
@@ -255,5 +255,5 @@ Conventional Commits, **中文描述**, 格式:
 
 ### 6. CI 监控与 Release 同步
 - **监控 CI 构建**: 后台监控 GitHub Actions 运行状态 (`release.yml`), 等待编译与打包完成
-- **更新 GitHub Release 正文**: CI 完成创建 release 后, 提取 `CHANGELOG.md` 中对应版本的日志, 执行 `gh release edit vX.Y.Z --notes-file <临时日志路径>` 补充完整更新说明 (自动触发 MirrorChyan 镜像与日志同步)
+- **更新 GitHub Release 正文**: CI 完成创建 release 后, 运行 `./scripts/build_release_notes.sh vX.Y.Z > /tmp/release_notes_vX.Y.Z.md` 生成包含 `## English` 与 `## 简体中文` 的双语正文, 再执行 `gh release edit vX.Y.Z --notes-file /tmp/release_notes_vX.Y.Z.md` 补充完整更新说明 (自动触发 MirrorChyan 镜像与日志同步)
 - **结果汇总汇报**: 向用户提供新版本号、Release 链接与 APK 产物大小

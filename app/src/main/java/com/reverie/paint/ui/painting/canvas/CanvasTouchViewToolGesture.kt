@@ -26,6 +26,40 @@ import kotlin.math.sin
 private fun clampTransformScale(v: Float): Float =
     if (abs(v) < 0.02f) (if (v < 0f) -0.02f else 0.02f) else v
 
+private fun applySnappedTranslation(
+    state: TransformState,
+    originCenter: Offset,
+    startTx: Float,
+    startTy: Float,
+    rawDx: Float,
+    rawDy: Float,
+    v: PaintViewModel,
+    snapThresholdDoc: Float,
+    activeGridGuide: DrawingGuideConfig?,
+): TransformSnapResult {
+    val res = TransformSnap.snapTranslation(
+        startTx = startTx,
+        startTy = startTy,
+        rawDx = rawDx,
+        rawDy = rawDy,
+        boundsCenterX = originCenter.x,
+        boundsCenterY = originCenter.y,
+        docWidth = v.docWidth,
+        docHeight = v.docHeight,
+        snapThresholdDoc = snapThresholdDoc,
+        gridGuide = activeGridGuide,
+    )
+    state.snapGuideOrigin = if (res.snappedAxisAngleDeg != null) {
+        Offset(originCenter.x + startTx, originCenter.y + startTy)
+    } else {
+        null
+    }
+    state.snapGuideAxisDeg = res.snappedAxisAngleDeg
+    state.snapCenterX = res.snappedCenterX
+    state.snapCenterY = res.snappedCenterY
+    return res
+}
+
 internal fun CanvasTouchView.handleToolDown(
     screenPos: Offset,
     docPos: Offset,
@@ -100,8 +134,9 @@ internal fun CanvasTouchView.handleToolDown(
     when (effTool()) {
         Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
             val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
-            assistLockedRay = null
-            resetFisheyeAssist()
+            resetAssistState()
+            assistFirstScreenX = screenPos.x
+            assistFirstScreenY = screenPos.y
             strokeAbortedUntilUp = false
             if (hasSymmetry) {
                 safeBeginSymmetryUndoMacro()
@@ -110,12 +145,21 @@ internal fun CanvasTouchView.handleToolDown(
             val rawStartDocPos = docPos
             firstDocPos = rawStartDocPos
             val guideAtStart = v.drawingGuide
+            if (
+                guideAtStart.mode == GuideMode.PERSPECTIVE &&
+                guideAtStart.perspectiveFisheye &&
+                guideAtStart.assistedDrawing &&
+                guideAtStart.fisheyeSnapTarget == FISHEYE_SNAP_CENTER_RAY
+            ) {
+                lockFisheyeDirection(v, guideAtStart, rawStartDocPos, rawStartDocPos)
+            }
             val targetDocPos = if (
                 guideAtStart.mode == GuideMode.PERSPECTIVE &&
                 guideAtStart.perspectiveFisheye &&
-                guideAtStart.assistedDrawing
+                guideAtStart.assistedDrawing &&
+                assistFisheyeLocked
             ) {
-                applyAssistedDrawing(rawStartDocPos, rawStartDocPos)
+                projectFisheyePoint(v, guideAtStart, rawStartDocPos)
             } else {
                 rawStartDocPos
             }
@@ -649,7 +693,7 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                         envR = maxOf(envR, hx); envB = maxOf(envB, hy)
                     }
                     if (firstDocPos != Offset.Zero) {
-                        val assisted = applyAssistedDrawing(firstDocPos, docPos)
+                        val assisted = projectAssistPointIfLocked(firstDocPos, docPos)
                         if (assisted.x.isFinite() && assisted.y.isFinite()) {
                             val asScreen = docToScreen(assisted)
                             envL = minOf(envL, asScreen.x); envT = minOf(envT, asScreen.y)
@@ -686,6 +730,15 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
             if (!strokeStarted && !v.isLayerBackendBusy()) {
                 val startDoc = if (firstDocPos != Offset.Zero) firstDocPos else docPos
                 firstDocPos = startDoc
+                resetAssistState()
+                if (pointerIndex in 0 until event.pointerCount) {
+                    assistFirstScreenX = event.getX(pointerIndex)
+                    assistFirstScreenY = event.getY(pointerIndex)
+                } else {
+                    val s0 = docToScreen(startDoc)
+                    assistFirstScreenX = s0.x
+                    assistFirstScreenY = s0.y
+                }
                 updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
                 lastStrokeRawPressure = pressure
                 beginStrokeTilt(touchTiltX, touchTiltY, startDoc.x, startDoc.y)
@@ -742,28 +795,47 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
             }
             currentStrokeDocPos = docPos
 
-            val effectiveDocPos = applyAssistedDrawing(firstDocPos, docPos)
+            val directionalAssist = isDirectionalAssistBufferedForStroke(v)
             val isAssist = (v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing)
             val docToDpScale = ((canvasZoom * canvasFitScale) / density.coerceAtLeast(0.5f)).coerceAtLeast(0.0005f)
+            var lastAssistedEmitted: Offset? = null
 
             for (i in 0 until event.historySize) {
-                val hScreen = Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))
+                val hSx = event.getHistoricalX(pointerIndex, i)
+                val hSy = event.getHistoricalY(pointerIndex, i)
+                val hScreen = Offset(hSx, hSy)
                 val hDoc = screenToDoc(hScreen)
-                val hAssisted = applyAssistedDrawing(firstDocPos, hDoc)
                 val hP = if (isStylus) {
                     val hp = event.getHistoricalPressure(pointerIndex, i)
                     if (hp.isNaN()) 1f else hp.coerceIn(0f, 1f)
                 } else 1f
                 val hTime = event.getHistoricalEventTime(i)
                 updateStylusSensors(event, pointerIndex, isStylus, historyPos = i)
-                resolveStrokeTilt(touchTiltX, touchTiltY, hAssisted.x, hAssisted.y)
-                v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime, strokeTiltX, strokeTiltY, touchRotation, isStylus = isStylus, docToDpScale = docToDpScale)
-                if (hasSymmetry) {
-                    appendSymmetricSamplePair(
-                        v.smoothedStrokeX, v.smoothedStrokeY, v.smoothedStrokePressure,
-                        strokeTiltX.toFloat(), strokeTiltY.toFloat(), touchRotation.toFloat(),
-                        eventTimeMs = hTime
+                if (directionalAssist) {
+                    val emitted = processDirectionalAssistSample(
+                        v = v,
+                        screenX = hSx,
+                        screenY = hSy,
+                        docPos = hDoc,
+                        pressure = hP,
+                        rawTiltX = touchTiltX,
+                        rawTiltY = touchTiltY,
+                        rawRotation = touchRotation,
+                        eventTimeMs = hTime,
+                        isStylus = isStylus,
+                        docToDpScale = docToDpScale,
                     )
+                    if (emitted != null) lastAssistedEmitted = emitted
+                } else {
+                    resolveStrokeTilt(touchTiltX, touchTiltY, hDoc.x, hDoc.y)
+                    v.touchMove(hDoc.x, hDoc.y, hP.toDouble(), hTime, strokeTiltX, strokeTiltY, touchRotation, isStylus = isStylus, docToDpScale = docToDpScale)
+                    if (hasSymmetry) {
+                        appendSymmetricSamplePair(
+                            v.smoothedStrokeX, v.smoothedStrokeY, v.smoothedStrokePressure,
+                            strokeTiltX.toFloat(), strokeTiltY.toFloat(), touchRotation.toFloat(),
+                            eventTimeMs = hTime
+                        )
+                    }
                 }
             }
 
@@ -1034,31 +1106,61 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
 
             updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
             lastStrokeRawPressure = pressure
-            resolveStrokeTilt(touchTiltX, touchTiltY, effectiveDocPos.x, effectiveDocPos.y)
-            v.touchMove(
-                effectiveDocPos.x,
-                effectiveDocPos.y,
-                pressure.toDouble(),
-                event.eventTime,
-                strokeTiltX,
-                strokeTiltY,
-                touchRotation,
-                predDocX,
-                predDocY,
-                isStylus = isStylus,
-                docToDpScale = docToDpScale,
-            )
+            val soundDocPos: Offset
+            if (directionalAssist) {
+                val curScreenX = if (pointerIndex in 0 until event.pointerCount) event.getX(pointerIndex) else assistFirstScreenX
+                val curScreenY = if (pointerIndex in 0 until event.pointerCount) event.getY(pointerIndex) else assistFirstScreenY
+                val emitted = processDirectionalAssistSample(
+                    v = v,
+                    screenX = curScreenX,
+                    screenY = curScreenY,
+                    docPos = docPos,
+                    pressure = pressure,
+                    rawTiltX = touchTiltX,
+                    rawTiltY = touchTiltY,
+                    rawRotation = touchRotation,
+                    eventTimeMs = event.eventTime,
+                    isStylus = isStylus,
+                    docToDpScale = docToDpScale,
+                )
+                if (emitted != null) lastAssistedEmitted = emitted
+                val activePos = lastAssistedEmitted ?: if (isAssistDirectionLocked(v.drawingGuide)) {
+                    projectAssistPointIfLocked(firstDocPos, docPos)
+                } else {
+                    firstDocPos
+                }
+                currentStrokeDocPos = activePos
+                soundDocPos = activePos
+            } else {
+                resolveStrokeTilt(touchTiltX, touchTiltY, docPos.x, docPos.y)
+                v.touchMove(
+                    docPos.x,
+                    docPos.y,
+                    pressure.toDouble(),
+                    event.eventTime,
+                    strokeTiltX,
+                    strokeTiltY,
+                    touchRotation,
+                    predDocX,
+                    predDocY,
+                    isStylus = isStylus,
+                    docToDpScale = docToDpScale,
+                )
+                soundDocPos = docPos
+            }
 
             // 纸张摩擦音效: 按文档坐标瞬时速度与压感动态调制增益与共振 (零分配, 单次 volatile 写)
             val soundDt = event.eventTime - lastSoundTimeMs
-            if (lastSoundTimeMs != 0L && soundDt > 0) {
-                val sdx = effectiveDocPos.x - lastSoundDocPos.x
-                val sdy = effectiveDocPos.y - lastSoundDocPos.y
+            if (lastSoundTimeMs != 0L && soundDt > 0 && (!directionalAssist || lastAssistedEmitted != null)) {
+                val sdx = soundDocPos.x - lastSoundDocPos.x
+                val sdy = soundDocPos.y - lastSoundDocPos.y
                 val speedPxPerMs = kotlin.math.sqrt(sdx * sdx + sdy * sdy) / soundDt
                 getOrCreateStylusDriver()?.feedbackManager?.updateStrokeSound(speedPxPerMs, pressure.toFloat())
             }
-            lastSoundDocPos = effectiveDocPos
-            lastSoundTimeMs = event.eventTime
+            if (!directionalAssist || lastAssistedEmitted != null) {
+                lastSoundDocPos = soundDocPos
+                lastSoundTimeMs = event.eventTime
+            }
 
             if (hasSymmetry) {
                 appendSymmetricSamplePair(
@@ -1175,6 +1277,11 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
             if (state != null && state.active && state.handle >= 0) {
                 val c = state.bounds.center
                 val imagePos = docPos
+                val shiftHeld = (event.metaState and android.view.KeyEvent.META_SHIFT_ON) != 0
+                val snapActive = state.snapEnabled || shiftHeld
+                state.clearSnapGuides()
+                val snapThresholdDoc = (10f * density) / maxOf(0.01f, canvasZoom * canvasFitScale)
+                val activeGridGuide = v.drawingGuide.takeIf { it.mode == GuideMode.GRID_2D }
                 when {
                     state.mode == TransformMode.DISTORT -> {
                         val delta = imagePos - state.dragStart
@@ -1183,7 +1290,23 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                             newMesh[state.handle] = state.startMeshPoints[state.handle] + delta
                             state.meshPoints = newMesh
                         } else {
-                            state.meshPoints = state.startMeshPoints.map { it + delta }
+                            val finalDelta = if (snapActive) {
+                                val res = applySnappedTranslation(
+                                    state = state,
+                                    originCenter = Offset(c.x + state.startTx, c.y + state.startTy),
+                                    startTx = 0f,
+                                    startTy = 0f,
+                                    rawDx = delta.x,
+                                    rawDy = delta.y,
+                                    v = v,
+                                    snapThresholdDoc = snapThresholdDoc,
+                                    activeGridGuide = activeGridGuide,
+                                )
+                                Offset(res.tx, res.ty)
+                            } else {
+                                delta
+                            }
+                            state.meshPoints = state.startMeshPoints.map { it + finalDelta }
                         }
                     }
                     state.mode == TransformMode.PERSPECTIVE -> {
@@ -1194,14 +1317,31 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                             newCorners[idx] = state.startQuadCorners[idx] + delta
                             state.quadCorners = newCorners
                         } else {
-                            state.quadCorners = state.startQuadCorners.map { it + delta }
+                            val finalDelta = if (snapActive) {
+                                val res = applySnappedTranslation(
+                                    state = state,
+                                    originCenter = Offset(c.x + state.startTx, c.y + state.startTy),
+                                    startTx = 0f,
+                                    startTy = 0f,
+                                    rawDx = delta.x,
+                                    rawDy = delta.y,
+                                    v = v,
+                                    snapThresholdDoc = snapThresholdDoc,
+                                    activeGridGuide = activeGridGuide,
+                                )
+                                Offset(res.tx, res.ty)
+                            } else {
+                                delta
+                            }
+                            state.quadCorners = state.startQuadCorners.map { it + finalDelta }
                         }
                     }
                     state.handle == 1 || state.handle == 3 || state.handle == 9 -> {
                         val a1 = atan2(state.dragStart.y - c.y - state.startTy, state.dragStart.x - c.x - state.startTx)
                         val a2 = atan2(imagePos.y - c.y - state.startTy, imagePos.x - c.x - state.startTx)
                         val d = Math.toDegrees((a2 - a1).toDouble()).toFloat()
-                        state.rotation = state.startRotation + d
+                        val rawRot = state.startRotation + d
+                        state.rotation = if (snapActive) TransformSnap.snapRotationDeg(rawRot) else rawRot
                     }
                     state.handle == 0 || state.handle == 2 -> {
                         val rad = Math.toRadians(-state.startRotation.toDouble())
@@ -1260,8 +1400,26 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                         state.scaleX = clampTransformScale(state.startScaleX * kx)
                     }
                     state.handle == 8 -> {
-                        state.tx = state.startTx + (imagePos.x - state.dragStart.x)
-                        state.ty = state.startTy + (imagePos.y - state.dragStart.y)
+                        val rawDx = imagePos.x - state.dragStart.x
+                        val rawDy = imagePos.y - state.dragStart.y
+                        if (snapActive) {
+                            val res = applySnappedTranslation(
+                                state = state,
+                                originCenter = c,
+                                startTx = state.startTx,
+                                startTy = state.startTy,
+                                rawDx = rawDx,
+                                rawDy = rawDy,
+                                v = v,
+                                snapThresholdDoc = snapThresholdDoc,
+                                activeGridGuide = activeGridGuide,
+                            )
+                            state.tx = res.tx
+                            state.ty = res.ty
+                        } else {
+                            state.tx = state.startTx + rawDx
+                            state.ty = state.startTy + rawDy
+                        }
                     }
                 }
             }
@@ -1461,6 +1619,13 @@ internal fun CanvasTouchView.handleToolUp(event: MotionEvent, docPos: Offset, is
                     resetMirrorBranches()
                     safeEndSymmetryUndoMacro()
                 } else {
+                    if (isDirectionalAssistBufferedForStroke(v) &&
+                        !isAssistDirectionLocked(v.drawingGuide) &&
+                        assistPendingCount > 0
+                    ) {
+                        val docToDpScale = ((canvasZoom * canvasFitScale) / density.coerceAtLeast(0.5f)).coerceAtLeast(0.0005f)
+                        flushPendingAssistOnPenUp(v, docToDpScale, isStylus)
+                    }
                     val hasMirrorSamples = hasSymmetry && mirrorBranchHasSamples()
                     // s12: 镜像已经由各分支独立 paintop 在打开的笔触里实时画过: 抬笔只收尾, 不再重放。
                     // 引擎拒绝 (快速路径 / 双笔刷蒙版 / 引擎绕过选区) 或抬笔时引擎还没确认时
@@ -1531,8 +1696,7 @@ internal fun CanvasTouchView.handleToolUp(event: MotionEvent, docPos: Offset, is
                 safeEndSymmetryUndoMacro()
             }
             strokeAbortedUntilUp = false
-            assistLockedRay = null
-            resetFisheyeAssist()
+            resetAssistState()
             clearPredictionState(triggerInvalidate = true)
             currentStrokeDocPos = Offset.Zero
             firstDocPos = Offset.Zero
@@ -1672,6 +1836,7 @@ internal fun CanvasTouchView.handleToolUp(event: MotionEvent, docPos: Offset, is
             activeMeasureHandle = -1
         }
         Tool.TRANSFORM -> {
+            tfState?.clearSnapGuides()
             if (isCancel) {
                 tfState?.cancelDrag()
             } else {

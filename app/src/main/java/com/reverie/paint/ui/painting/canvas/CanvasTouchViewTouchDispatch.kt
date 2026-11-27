@@ -215,6 +215,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 strokeStarted = false
                 safeEndSymmetryUndoMacro()
                 resetMirrorBranches()
+                resetAssistState()
                 clearPredictionState(triggerInvalidate = true)
                 firstDocPos = Offset.Zero
                 shapeEndDocPos = Offset.Zero

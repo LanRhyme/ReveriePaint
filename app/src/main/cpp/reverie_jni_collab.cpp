@@ -151,6 +151,13 @@ Java_com_reverie_paint_core_ReverieCoreBridge_collabRetryPeer(
     core()->collabRetryPeer(jstrToQString(env, peerId));
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_collabPruneNonOwnLayersForExit(
+    JNIEnv *env, jobject, jstring selfPeerId)
+{
+    return core()->collabPruneNonOwnLayersForExit(jstrToQString(env, selfPeerId)) ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setProjectCollabMeta(
     JNIEnv *env, jobject, jboolean isCollab, jstring roomCode)

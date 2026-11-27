@@ -11,23 +11,21 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
@@ -37,30 +35,17 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.TransformOrigin
-import kotlin.math.roundToInt
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -68,33 +53,26 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.components.TelemetryNoticeBar
 import com.reverie.paint.R
-import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.dialog.RecentAutoSavesDialog
 import com.reverie.paint.ui.dialog.SponsorPromptDialog
 import com.reverie.paint.ui.dialog.SponsorsDialog
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Project
+import com.reverie.paint.model.ProjectRenameError
+import com.reverie.paint.model.ProjectRenameResult
 import com.reverie.paint.model.UiAnimationSpeed
-import com.reverie.paint.ui.theme.AppColors
 import com.reverie.paint.ui.theme.Motion
 import com.reverie.paint.ui.theme.Theme
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
-import java.io.File
-import java.text.SimpleDateFormat
 import java.util.*
 
 
@@ -111,6 +89,10 @@ fun HomePage(vm: PaintViewModel) {
     var isSearchActive by remember { mutableStateOf(false) }
     var isSelectMode by remember { mutableStateOf(false) }
     val selectedProjects = remember { mutableStateListOf<Project>() }
+
+    LaunchedEffect(Unit) {
+        vm.ensureCollabPrefsLoaded()
+    }
 
     // Dialogs
     var showNewFolderDialog by remember { mutableStateOf(false) }
@@ -160,17 +142,35 @@ fun HomePage(vm: PaintViewModel) {
     val artworkBoundsMap = remember { mutableStateMapOf<String, Rect>() }
     val allItemBoundsMap = remember { mutableStateMapOf<String, Rect>() }
 
-    // Filter projects by search query
+    // Filter and sort projects
     val currentFolder = vm.currentFolder
     val displayProjects =
-        remember(vm.projects, vm.searchQuery, currentFolder) {
+        remember(vm.projects, vm.searchQuery, currentFolder, vm.gallerySortMode) {
             val q = vm.searchQuery.trim().lowercase()
-            if (q.isEmpty()) {
+            val filtered = if (q.isEmpty()) {
                 vm.projects
             } else {
                 vm.projects.filter { it.name.lowercase().contains(q) }
             }
+            when (vm.gallerySortMode) {
+                "NAME" -> filtered.sortedWith(
+                    compareByDescending<Project> { it.isFolder }
+                        .thenBy { it.name.lowercase(Locale.getDefault()) },
+                )
+                "STROKES" -> filtered.sortedWith(
+                    compareByDescending<Project> { if (it.isFolder) -1 else it.strokeCount }
+                        .thenByDescending { it.lastModified },
+                )
+                else -> filtered
+            }
         }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != 0) {
+            isSearchActive = false
+            showMoreMenu = false
+        }
+    }
 
     // Refresh projects upon entering or switching folder (avoid redundant IO + widget IPC storm on tab switch)
     LaunchedEffect(currentFolder, vm.currentPage) {
@@ -289,12 +289,44 @@ fun HomePage(vm: PaintViewModel) {
 
     if (showRenameDialog && targetRenameProject != null) {
         val renameTarget = targetRenameProject!!
+        val renameValidationError = remember(renameTarget, newProjectName, vm.projects) {
+            vm.validateProjectRename(renameTarget, newProjectName)
+        }
+        val renameExistsMsg = stringResource(
+            if (renameTarget.isFolder) R.string.home_rename_error_folder_exists
+            else R.string.home_rename_error_project_exists,
+        )
+        val renameInvalidCharsMsg = stringResource(R.string.home_rename_error_invalid_chars)
+        val renameFailedMsg = stringResource(R.string.home_rename_error_failed)
+        val renameErrorText = when (renameValidationError) {
+            ProjectRenameError.ALREADY_EXISTS -> renameExistsMsg
+            ProjectRenameError.INVALID_CHARS -> renameInvalidCharsMsg
+            else -> null
+        }
         RenameProjectDialog(
             colors = colors,
             project = renameTarget,
             name = newProjectName,
             onNameChange = { newProjectName = it },
-            onRename = { newName -> vm.renameProject(renameTarget, newName) },
+            errorText = renameErrorText,
+            confirmEnabled = renameValidationError == null && newProjectName.isNotBlank(),
+            onRename = { newName ->
+                when (val result = vm.renameProject(renameTarget, newName)) {
+                    is ProjectRenameResult.Success,
+                    ProjectRenameResult.Unchanged -> {
+                        showRenameDialog = false
+                        targetRenameProject = null
+                    }
+                    is ProjectRenameResult.Failure -> {
+                        val msg = when (result.error) {
+                            ProjectRenameError.ALREADY_EXISTS -> renameExistsMsg
+                            ProjectRenameError.INVALID_CHARS -> renameInvalidCharsMsg
+                            else -> renameFailedMsg
+                        }
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
             onDismiss = {
                 showRenameDialog = false
                 targetRenameProject = null
@@ -378,11 +410,8 @@ fun HomePage(vm: PaintViewModel) {
             onDismissRequest = {},
             properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
         ) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = colors.panel,
-                tonalElevation = 8.dp,
-                border = androidx.compose.foundation.BorderStroke(1.dp, colors.border),
+            Box(
+                modifier = Modifier.studioDialogSurface(colors, RoundedCornerShape(20.dp)),
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
@@ -411,19 +440,24 @@ fun HomePage(vm: PaintViewModel) {
             homeBgFile?.let { runCatching { BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() }.getOrNull() }
         } else null
     }
+    val hasCustomBg = homeBgBitmap != null && vm.homeCustomBgEnabled
+    val activeGridState = if (currentFolder == null) rootGridState else folderGridState
+    val isGalleryScrolled by remember(activeGridState) {
+        derivedStateOf {
+            activeGridState.firstVisibleItemIndex > 0 || activeGridState.firstVisibleItemScrollOffset > 16
+        }
+    }
 
     Box(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(colors.bg),
+        modifier = Modifier.fillMaxSize(),
     ) {
-        // 背景与主内容作为 haze 源层，与悬浮底栏保持兄弟层级以正确采样实时模糊
+        // 背景与主内容作为 haze 源层，将 bg 置于 hazeSource 内部确保采样不透底，与悬浮顶底栏保持兄弟层级
         Box(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .then(if (vm.blurBackground) Modifier.hazeSource(hazeState) else Modifier),
+                    .then(if (vm.blurBackground) Modifier.hazeSource(hazeState) else Modifier)
+                    .background(colors.bg),
         ) {
             if (homeBgBitmap != null && vm.homeCustomBgEnabled) {
                 val scale = if (vm.homeCustomBgScaleMode == "FIT") ContentScale.Fit else ContentScale.Crop
@@ -474,448 +508,153 @@ fun HomePage(vm: PaintViewModel) {
                 label = "HomeTabTransition",
             ) { tabIndex ->
             if (tabIndex == 0) {
+                val density = LocalDensity.current
+                val config = LocalConfiguration.current
+                val isTabletWidth = config.screenWidthDp >= 600
+                val gridMinCell = when (vm.galleryCardSize) {
+                    "COMPACT" -> if (isTabletWidth) 156.dp else 150.dp
+                    "LARGE" -> if (isTabletWidth) 224.dp else 220.dp
+                    else -> if (isTabletWidth) 182.dp else 164.dp
+                }
+                val gridHPadding = when (vm.galleryCardSize) {
+                    "COMPACT" -> 16.dp
+                    "LARGE" -> if (isTabletWidth) 22.dp else 16.dp
+                    else -> if (isTabletWidth) 18.dp else 16.dp
+                }
+                val gridHSpacing = when (vm.galleryCardSize) {
+                    "COMPACT" -> 16.dp
+                    "LARGE" -> if (isTabletWidth) 22.dp else 16.dp
+                    else -> if (isTabletWidth) 18.dp else 16.dp
+                }
+                val gridVSpacing = when (vm.galleryCardSize) {
+                    "COMPACT" -> 18.dp
+                    "LARGE" -> if (isTabletWidth) 24.dp else 22.dp
+                    else -> if (isTabletWidth) 20.dp else 18.dp
+                }
+                val topContentInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 72.dp
+                val bottomContentInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 110.dp
+                val showCollabBanner = vm.collab.showRecoveryBanner && vm.collab.recoverableSession != null && !vm.collab.isActive
+
+                val screenWPx = with(density) { config.screenWidthDp.dp.toPx() }
+                val screenHPx = with(density) { config.screenHeightDp.dp.toPx() }
+                val folderPivotX = lastClickedFolderBounds?.let { (it.center.x / screenWPx).coerceIn(0.08f, 0.92f) } ?: 0.5f
+                val folderPivotY = lastClickedFolderBounds?.let { (it.center.y / screenHPx).coerceIn(0.08f, 0.92f) } ?: 0.5f
+                val folderOrigin = TransformOrigin(folderPivotX, folderPivotY)
+
                 Box(modifier = Modifier.fillMaxSize()) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        // Floating Morandi Header (matching PaintingPage style)
-                        Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .statusBarsPadding()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            // Animated Header Title and Back Button Transition
-                            AnimatedContent(
-                                targetState =
-                                    if (isSelectMode) {
-                                        "SELECT"
-                                    } else if (currentFolder != null) {
-                                        "FOLDER"
+                    // 画集原位展开/收拢: Procreate 放射式弹性破界展开与收拢归位
+                    AnimatedContent(
+                        targetState = currentFolder?.filePath,
+                        transitionSpec = {
+                            when (Motion.currentSpeed) {
+                                UiAnimationSpeed.OFF -> EnterTransition.None togetherWith ExitTransition.None
+                                UiAnimationSpeed.FAST -> {
+                                    if (targetState != null) {
+                                        (
+                                            fadeIn(tween(100)) +
+                                                scaleIn(tween(100), initialScale = 0.72f, transformOrigin = folderOrigin)
+                                        ).togetherWith(
+                                            fadeOut(tween(80)) + scaleOut(tween(80), targetScale = 1.05f),
+                                        )
                                     } else {
-                                        "GALLERY"
-                                    },
-                                transitionSpec = {
-                                    if (targetState == "FOLDER") {
-                                        (slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(220)))
-                                            .togetherWith(
-                                                slideOutHorizontally(tween(180, easing = FastOutSlowInEasing)) { -it / 3 } +
-                                                    fadeOut(tween(160)),
-                                            )
-                                    } else if (initialState == "FOLDER") {
-                                        (slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(220)))
-                                            .togetherWith(
-                                                slideOutHorizontally(tween(180, easing = FastOutSlowInEasing)) { it / 3 } +
-                                                    fadeOut(tween(160)),
-                                            )
+                                        (
+                                            fadeIn(tween(100)) +
+                                                scaleIn(tween(100), initialScale = 1.05f)
+                                        ).togetherWith(
+                                            fadeOut(tween(80)) +
+                                                scaleOut(tween(80), targetScale = 0.72f, transformOrigin = folderOrigin),
+                                        )
+                                    }
+                                }
+                                UiAnimationSpeed.NORMAL -> {
+                                    if (targetState != null) {
+                                        (
+                                            fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+                                                scaleIn(
+                                                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 360f),
+                                                    initialScale = 0.56f,
+                                                    transformOrigin = folderOrigin,
+                                                )
+                                        ).togetherWith(
+                                            fadeOut(tween(160, easing = FastOutSlowInEasing)) +
+                                                scaleOut(
+                                                    animationSpec = tween(200, easing = FastOutSlowInEasing),
+                                                    targetScale = 1.10f,
+                                                ),
+                                        )
                                     } else {
-                                        fadeIn(tween(200)).togetherWith(fadeOut(tween(160)))
-                                    }
-                                },
-                                label = "HeaderStateTransition",
-                            ) { state ->
-                                when (state) {
-                                    "FOLDER" -> {
-                                        val folder = currentFolder
-                                        if (folder != null) {
-                                            val isExitDrop = isHoveringExitFolder
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier =
-                                                    Modifier
-                                                        .onGloballyPositioned { folderHeaderBounds = it.boundsInRoot() }
-                                                        .clip(RoundedCornerShape(20.dp))
-                                                        .background(if (isExitDrop) colors.accent.copy(alpha = 0.95f) else colors.panel.copy(alpha = 0.85f))
-                                                        .border(if (isExitDrop) 2.dp else 1.dp, if (isExitDrop) Color.White else colors.border, RoundedCornerShape(20.dp))
-                                                        .clickable {
-                                                            vm.currentFolder = null
-                                                            vm.refreshProjects()
-                                                        }.padding(horizontal = 12.dp, vertical = 6.dp),
-                                            ) {
-                                                Icon(
-                                                    painter = painterResource(if (isExitDrop) R.drawable.ic_external_link else R.drawable.ic_arrow_left),
-                                                    contentDescription = stringResource(R.string.common_back),
-                                                    tint = if (isExitDrop) Color.White else colors.text,
-                                                    modifier = Modifier.size(18.dp),
+                                        (
+                                            fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+                                                scaleIn(
+                                                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                                    initialScale = 1.08f,
                                                 )
-                                                Spacer(Modifier.width(8.dp))
-                                                Text(
-                                                    text = if (isExitDrop) stringResource(R.string.gallery_drag_move_out) else folder.name,
-                                                    color = if (isExitDrop) Color.White else colors.text,
-                                                    fontSize = 15.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                )
-                                                if (!isExitDrop) {
-                                                    Spacer(Modifier.width(4.dp))
-                                                    Text(
-                                                        text = "(${displayProjects.size})",
-                                                        color = colors.subText,
-                                                        fontSize = 12.sp,
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    "SELECT" -> {
-                                        AnimatedContent(
-                                            targetState = selectedProjects.size,
-                                            transitionSpec = {
-                                                if (targetState > initialState) {
-                                                    (slideInVertically(tween(180)) { -it / 2 } + fadeIn(tween(180)))
-                                                        .togetherWith(slideOutVertically(tween(140)) { it / 2 } + fadeOut(tween(140)))
-                                                } else {
-                                                    (slideInVertically(tween(180)) { it / 2 } + fadeIn(tween(180)))
-                                                        .togetherWith(slideOutVertically(tween(140)) { -it / 2 } + fadeOut(tween(140)))
-                                                }
-                                            },
-                                            label = "SelectedCountAnim",
-                                        ) { count ->
-                                            Text(
-                                                text = stringResource(R.string.gallery_selected_count, count),
-                                                color = colors.text,
-                                                fontSize = 18.sp,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                        }
-                                    }
-
-                                    else -> {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        ) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.ic_reverie_logo),
-                                                contentDescription = null,
-                                                tint = colors.accent,
-                                                modifier = Modifier.size(28.dp),
-                                            )
-                                            Column {
-                                                Text(
-                                                    text = stringResource(R.string.gallery_title),
-                                                    color = colors.text,
-                                                    fontSize = 22.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    letterSpacing = 0.5.sp,
-                                                )
-                                                // 数量变化 (删除/导入) 时交叉淡入, 不再原地闪一下
-                                                AnimatedContent(
-                                                    targetState = displayProjects.size,
-                                                    transitionSpec = {
-                                                        fadeIn(tween(220, easing = FastOutSlowInEasing))
-                                                            .togetherWith(fadeOut(tween(140)))
-                                                    },
-                                                    label = "GalleryItemCountAnim",
-                                                ) { count ->
-                                                    Text(
-                                                        text = stringResource(R.string.gallery_items_count, count),
-                                                        color = colors.subText,
-                                                        fontSize = 11.sp,
-                                                    )
-                                                }
-                                            }
-                                        }
+                                        ).togetherWith(
+                                            fadeOut(tween(160, easing = FastOutSlowInEasing)) +
+                                                scaleOut(
+                                                    animationSpec = spring(dampingRatio = 0.84f, stiffness = 420f),
+                                                    targetScale = 0.56f,
+                                                    transformOrigin = folderOrigin,
+                                                ),
+                                        )
                                     }
                                 }
                             }
-
-                            Spacer(Modifier.weight(1f))
-
-                            AnimatedContent(
-                                targetState = isSearchActive,
-                                transitionSpec = {
-                                    (fadeIn(tween(160)) + scaleIn(tween(160), initialScale = 0.94f))
-                                        .togetherWith(fadeOut(tween(100)) + scaleOut(tween(100), targetScale = 0.94f))
-                                },
-                                label = "HomeTopBarActionTransition",
-                            ) { searching ->
-                                if (searching) {
-                                    HomeSearchBar(
-                                        query = vm.searchQuery,
-                                        onQueryChange = { vm.searchQuery = it },
-                                        onClose = {
-                                            vm.searchQuery = ""
-                                            isSearchActive = false
-                                        },
-                                        colors = colors,
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        label = "FolderTransition",
+                    ) { folderKey ->
+                        // 入场级联记录器: 每个画集视图各自持有一份, 重新进入时重新播一次入场
+                        val entranceTracker = remember(folderKey) { GalleryEntranceTracker() }
+                        if (displayProjects.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = topContentInset, bottom = bottomContentInset),
+                            ) {
+                                if (showCollabBanner) {
+                                    com.reverie.paint.ui.painting.collab.CollabSessionRecoveryBanner(
+                                        vm = vm,
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .padding(horizontal = gridHPadding),
                                     )
-                                } else {
-                                    if (isSelectMode) {
-                                        val haptic = LocalHapticFeedback.current
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        ) {
-                                            val allSelected = displayProjects.isNotEmpty() && selectedProjects.size == displayProjects.size
-                                            ReTextButton(
-                                                text = if (allSelected) stringResource(R.string.gallery_deselect_all) else stringResource(R.string.gallery_select_all),
-                                                onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    if (allSelected) {
-                                                        selectedProjects.clear()
-                                                    } else {
-                                                        selectedProjects.clear()
-                                                        selectedProjects.addAll(displayProjects)
-                                                    }
-                                                },
-                                                textColor = colors.accent,
-                                                fontWeight = FontWeight.Medium,
-                                                fontSize = 14.sp,
-                                            )
-
-                                            ReTextButton(
-                                                stringResource(R.string.common_done),
-                                                onClick = {
-                                                    isSelectMode = false
-                                                    selectedProjects.clear()
-                                                },
-                                                textColor = colors.accent,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 15.sp,
-                                            )
-                                        }
-                                    } else {
-                                        // Top Bar Buttons Group
-                                        Row(
-                                            modifier =
-                                                Modifier
-                                                    .clip(RoundedCornerShape(21.dp))
-                                                    .background(colors.panel.copy(alpha = 0.85f))
-                                                    .border(1.dp, colors.border, RoundedCornerShape(21.dp))
-                                                    .padding(4.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            com.reverie.paint.ui.painting.collab.CollabStatusButton(
-                                                vm = vm,
-                                                compact = !vm.collab.isActive,
-                                            )
-
-                                            // Search icon button
-                                            Box(
-                                                modifier =
-                                                    Modifier
-                                                        .size(34.dp)
-                                                        .clip(CircleShape)
-                                                        .clickable { isSearchActive = true },
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Icon(
-                                                    painterResource(R.drawable.ic_search),
-                                                    contentDescription = stringResource(R.string.common_search),
-                                                    tint = colors.icon,
-                                                    modifier = Modifier.size(18.dp),
-                                                )
-                                            }
-
-                                            // More Menu icon button
-                                            Box {
-                                                Box(
-                                                    modifier =
-                                                        Modifier
-                                                            .size(34.dp)
-                                                            .clip(CircleShape)
-                                                            .clickable { showMoreMenu = true },
-                                                    contentAlignment = Alignment.Center,
-                                                ) {
-                                                    Icon(
-                                                        painterResource(R.drawable.ic_dots_vertical),
-                                                        contentDescription = stringResource(R.string.common_more),
-                                                        tint = colors.icon,
-                                                        modifier = Modifier.size(18.dp),
-                                                    )
-                                                }
-
-                                                HomeDropdownMenu(
-                                                    expanded = showMoreMenu,
-                                                    onDismissRequest = { showMoreMenu = false },
-                                                ) {
-                                                    HomeDropdownMenuItem(
-                                                        text = stringResource(R.string.common_import),
-                                                        icon = R.drawable.ic_import,
-                                                        onClick = {
-                                                            showMoreMenu = false
-                                                            importLauncher.launch(arrayOf("*/*"))
-                                                        },
-                                                    )
-                                                    HomeDropdownMenuItem(
-                                                        text = stringResource(R.string.gallery_select),
-                                                        icon = R.drawable.ic_circle_check,
-                                                        onClick = {
-                                                            showMoreMenu = false
-                                                            isSelectMode = true
-                                                            selectedProjects.clear()
-                                                        },
-                                                    )
-                                                    HomeDropdownMenuItem(
-                                                        text = stringResource(R.string.gallery_new_stack),
-                                                        icon = R.drawable.ic_folder_plus,
-                                                        onClick = {
-                                                            showMoreMenu = false
-                                                            newFolderName = generateDefaultStackName(displayProjects, defaultStackBaseName, defaultStackIndexedFormat)
-                                                            showNewFolderDialog = true
-                                                        },
-                                                    )
-                                                    HomeDropdownMenuItem(
-                                                        text = stringResource(R.string.auto_save_history_title),
-                                                        icon = R.drawable.ic_clock,
-                                                        onClick = {
-                                                            showMoreMenu = false
-                                                            showAutoSaveHistoryDialog = true
-                                                        },
-                                                    )
-                                                    HomeDropdownMenuItem(
-                                                        text = stringResource(R.string.gallery_refresh),
-                                                        icon = R.drawable.ic_refresh,
-                                                        onClick = {
-                                                            showMoreMenu = false
-                                                            vm.refreshProjects()
-                                                        },
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
                                 }
+                                GalleryEmptyState(
+                                    colors = colors,
+                                    isSearching = vm.searchQuery.isNotEmpty(),
+                                    isInFolder = folderKey != null,
+                                    onCreateNew = { vm.goCreate() },
+                                    onImport = { importLauncher.launch(arrayOf("*/*")) },
+                                    onClearSearch = { vm.searchQuery = "" },
+                                )
                             }
-                        }
-
-                        // 崩溃遥测首启一次性告知条 (非模态; 未注入端点时自身不渲染)
-                        TelemetryNoticeBar(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-
-                        val density = LocalDensity.current
-                        val config = LocalConfiguration.current
-                        val screenWPx = with(density) { config.screenWidthDp.dp.toPx() }
-                        val screenHPx = with(density) { config.screenHeightDp.dp.toPx() }
-                        val folderPivotX = lastClickedFolderBounds?.let { (it.center.x / screenWPx).coerceIn(0.08f, 0.92f) } ?: 0.5f
-                        val folderPivotY = lastClickedFolderBounds?.let { (it.center.y / screenHPx).coerceIn(0.08f, 0.92f) } ?: 0.5f
-                        val folderOrigin = TransformOrigin(folderPivotX, folderPivotY)
-
-                        // 画集原位展开/收拢: 以点击卡片屏幕锚点为中心扩散撑开/聚拢归位
-                        AnimatedContent(
-                            targetState = currentFolder?.filePath,
-                            transitionSpec = {
-                                if (targetState != null) {
-                                    (
-                                        fadeIn(tween(240, easing = FastOutSlowInEasing)) +
-                                            scaleIn(
-                                                animationSpec = spring(dampingRatio = 0.82f, stiffness = 420f),
-                                                initialScale = 0.70f,
-                                                transformOrigin = folderOrigin,
-                                            )
-                                    ).togetherWith(
-                                        fadeOut(tween(140, easing = FastOutSlowInEasing)) +
-                                            scaleOut(
-                                                animationSpec = tween(180, easing = FastOutSlowInEasing),
-                                                targetScale = 1.08f,
-                                            ),
-                                    )
-                                } else {
-                                    (
-                                        fadeIn(tween(240, easing = FastOutSlowInEasing)) +
-                                            scaleIn(
-                                                animationSpec = tween(220, easing = FastOutSlowInEasing),
-                                                initialScale = 1.06f,
-                                            )
-                                    ).togetherWith(
-                                        fadeOut(tween(150, easing = FastOutSlowInEasing)) +
-                                            scaleOut(
-                                                animationSpec = spring(dampingRatio = 0.85f, stiffness = 440f),
-                                                targetScale = 0.70f,
-                                                transformOrigin = folderOrigin,
-                                            ),
-                                    )
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            label = "FolderTransition",
-                        ) { folderKey ->
-                            // 入场级联记录器: 每个画集视图各自持有一份, 重新进入时重新播一次入场
-                            val entranceTracker = remember(folderKey) { GalleryEntranceTracker() }
-                            if (displayProjects.isEmpty()) {
-                                // 空状态: 整体淡入 + 轻微上浮, 不再硬切
-                                val emptyEnter = remember(folderKey) { Animatable(0f) }
-                                LaunchedEffect(folderKey) {
-                                    emptyEnter.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
-                                }
-                                Box(
-                                    modifier =
-                                        Modifier
-                                            .fillMaxSize()
-                                            .graphicsLayer {
-                                                alpha = emptyEnter.value
-                                                translationY = (1f - emptyEnter.value) * 18.dp.toPx()
-                                            },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.padding(horizontal = 32.dp),
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = gridMinCell),
+                                state = if (folderKey == null) rootGridState else folderGridState,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = gridHPadding),
+                                horizontalArrangement = Arrangement.spacedBy(gridHSpacing),
+                                verticalArrangement = Arrangement.spacedBy(gridVSpacing),
+                                contentPadding = PaddingValues(
+                                    top = topContentInset,
+                                    bottom = bottomContentInset,
+                                ),
+                            ) {
+                                if (showCollabBanner) {
+                                    item(
+                                        key = "__collab_recovery_banner__",
+                                        span = { GridItemSpan(maxLineSpan) },
                                     ) {
-                                        Box(
-                                            modifier =
-                                                Modifier
-                                                    .size(80.dp)
-                                                    .clip(CircleShape)
-                                                    .background(colors.panel.copy(alpha = 0.8f))
-                                                    .border(1.dp, colors.border, CircleShape),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Icon(
-                                                painterResource(R.drawable.ic_canvas_tab),
-                                                contentDescription = null,
-                                                tint = colors.subText.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(36.dp),
-                                            )
-                                        }
-                                        Spacer(Modifier.height(16.dp))
-                                        Text(
-                                            if (vm.searchQuery.isNotEmpty()) {
-                                                stringResource(R.string.gallery_empty_search_title)
-                                            } else if (folderKey !=
-                                                null
-                                            ) {
-                                                stringResource(R.string.gallery_empty_stack_title)
-                                            } else {
-                                                stringResource(R.string.gallery_empty_main_title)
-                                            },
-                                            color = colors.text,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                        )
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(
-                                            if (vm.searchQuery.isNotEmpty()) {
-                                                stringResource(R.string.gallery_empty_search_desc)
-                                            } else if (folderKey !=
-                                                null
-                                            ) {
-                                                stringResource(R.string.gallery_empty_stack_desc)
-                                            } else {
-                                                stringResource(R.string.gallery_empty_main_desc)
-                                            },
-                                            color = colors.subText,
-                                            fontSize = 12.sp,
-                                            textAlign = TextAlign.Center,
+                                        com.reverie.paint.ui.painting.collab.CollabSessionRecoveryBanner(
+                                            vm = vm,
+                                            modifier = Modifier.fillMaxWidth(),
                                         )
                                     }
                                 }
-                            } else {
-                                LazyVerticalGrid(
-                                    columns = GridCells.Adaptive(minSize = 160.dp),
-                                    state = if (folderKey == null) rootGridState else folderGridState,
-                                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                                    contentPadding = PaddingValues(
-                                        top = 8.dp,
-                                        bottom = 110.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-                                    ),
-                                ) {
-                                    itemsIndexed(
+                                itemsIndexed(
                                         items = displayProjects,
                                         key = { _, it -> it.filePath },
                                         // 画集卡片与单图卡片是两套布局, 分开复用可减少滑动时的重组
@@ -934,18 +673,21 @@ fun HomePage(vm: PaintViewModel) {
                                         val initialFanAngle =
                                             remember(p.filePath) {
                                                 val hash = kotlin.math.abs(p.filePath.hashCode())
-                                                ((hash % 9) - 4).toFloat() * 1.5f // -6° to +6° fanned spread
+                                                ((hash % 5) - 2).toFloat() * 1.1f // -2.2° to +2.2° subtle natural tilt
                                             }
 
                                         val interactionSource = remember { MutableInteractionSource() }
                                         val isPressed by interactionSource.collectIsPressedAsState()
                                         val cardPressScale by animateFloatAsState(
-                                            targetValue = if (isPressed) 0.94f else 1.0f,
-                                            animationSpec =
+                                            targetValue = if (isPressed) 0.955f else 1.0f,
+                                            animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+                                                snap()
+                                            } else {
                                                 spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
+                                                    dampingRatio = 0.76f,
+                                                    stiffness = 520f,
+                                                )
+                                            },
                                             label = "CardScaleAnim",
                                         )
 
@@ -997,18 +739,23 @@ fun HomePage(vm: PaintViewModel) {
                                         )
                                         val cardRingWidth = maxOf(borderStrokeWidth, holdRingWidth)
 
-                                        // 画集卡片按压扇形展开: 单个进度驱动三层, 数值只在图层阶段读取
+                                        val isFolderHovered = p.isFolder && hoveredFolderKey == p.filePath
+                                        val isMergePendingTarget = !p.isFolder && hoveredMergeArtworkKey == p.filePath && !isMergeReady
+                                        val isMergeReadyTarget = !p.isFolder && hoveredMergeArtworkKey == p.filePath && isMergeReady
+                                        // 画集卡片按压或拖拽悬停扇形展开: 单个进度驱动三层, Procreate 宽幅弹性扇开
                                         val fanPress by animateFloatAsState(
-                                            targetValue = if (isPressed) 1f else 0f,
-                                            animationSpec =
+                                            targetValue = if (isPressed || isFolderHovered) 1f else 0f,
+                                            animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+                                                snap()
+                                            } else {
                                                 spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
+                                                    dampingRatio = 0.62f,
+                                                    stiffness = 360f,
+                                                )
+                                            },
                                             label = "FanPress",
                                         )
 
-                                        val isFolderHovered = p.isFolder && hoveredFolderKey == p.filePath
                                         val folderHoverScale by animateFloatAsState(
                                             targetValue = if (isFolderHovered) 1.07f else 1.0f,
                                             animationSpec =
@@ -1017,6 +764,42 @@ fun HomePage(vm: PaintViewModel) {
                                                     stiffness = Spring.StiffnessMediumLow,
                                                 ),
                                             label = "FolderHoverScale",
+                                        )
+
+                                        val isBeingDragged = draggingProject?.filePath == p.filePath
+                                        val isDropFocus = isFolderHovered || isMergePendingTarget || isMergeReadyTarget
+                                        val dragFocusAlpha by animateFloatAsState(
+                                            targetValue = when {
+                                                isBeingDragged -> 0.22f
+                                                draggingProject != null && !isDropFocus -> 0.80f
+                                                else -> 1f
+                                            },
+                                            animationSpec = tween(150),
+                                            label = "DragFocusAlpha",
+                                        )
+                                        val dragSourceScale by animateFloatAsState(
+                                            targetValue = if (isBeingDragged) 0.92f else 1f,
+                                            animationSpec = Motion.springSoft,
+                                            label = "DragSourceScale",
+                                        )
+                                        var pressNormOffset by remember { mutableStateOf(Offset.Zero) }
+                                        val pressTiltX by animateFloatAsState(
+                                            targetValue = if (Motion.currentSpeed == UiAnimationSpeed.OFF) 0f else -pressNormOffset.y * 5.5f,
+                                            animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+                                                snap()
+                                            } else {
+                                                spring(dampingRatio = 0.72f, stiffness = 480f)
+                                            },
+                                            label = "CardTiltX",
+                                        )
+                                        val pressTiltY by animateFloatAsState(
+                                            targetValue = if (Motion.currentSpeed == UiAnimationSpeed.OFF) 0f else pressNormOffset.x * 5.5f,
+                                            animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+                                                snap()
+                                            } else {
+                                                spring(dampingRatio = 0.72f, stiffness = 480f)
+                                            },
+                                            label = "CardTiltY",
                                         )
                                         var itemCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
@@ -1030,16 +813,19 @@ fun HomePage(vm: PaintViewModel) {
                                                         fadeOutSpec = tween(140, easing = FastOutSlowInEasing),
                                                     )
                                                     .graphicsLayer {
-                                                        // 入场/按压/选中/拖拽悬停全部在图层阶段取值, 逐帧不触发重组
+                                                        // 入场/按压/3D倾角/选中/拖拽悬停全部在图层阶段取值, 逐帧不触发重组
                                                         val enter = enterProgress.value.coerceIn(0f, 1f)
                                                         val scale =
-                                                            (0.74f + 0.26f * enter) * cardPressScale *
-                                                                cardSelectScale * folderHoverScale * holdLiftScale
-                                                        alpha = enter
+                                                            (0.90f + 0.10f * enter) * cardPressScale *
+                                                                cardSelectScale * folderHoverScale * holdLiftScale * dragSourceScale
+                                                        alpha = (enter * 1.35f).coerceIn(0f, 1f) * dragFocusAlpha
                                                         scaleX = scale
                                                         scaleY = scale
                                                         rotationZ = (1f - enter) * initialFanAngle
-                                                        translationY = (1f - enter) * 28.dp.toPx()
+                                                        rotationX = pressTiltX
+                                                        rotationY = pressTiltY
+                                                        cameraDistance = 12f * density.density
+                                                        translationY = (1f - enter) * 16.dp.toPx()
                                                     }
                                                     .onGloballyPositioned { coords ->
                                                         itemCoordinates = coords
@@ -1330,7 +1116,28 @@ fun HomePage(vm: PaintViewModel) {
                                                 modifier = Modifier.fillMaxWidth(),
                                             ) {
                                                 Box(
-                                                    modifier = cardModifier,
+                                                    modifier = Modifier
+                                                        .pointerInput(p.filePath) {
+                                                            awaitEachGesture {
+                                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                                val w = size.width.toFloat().coerceAtLeast(1f)
+                                                                val h = size.height.toFloat().coerceAtLeast(1f)
+                                                                pressNormOffset = Offset(
+                                                                    x = ((down.position.x / w) * 2f - 1f).coerceIn(-1f, 1f),
+                                                                    y = ((down.position.y / h) * 2f - 1f).coerceIn(-1f, 1f),
+                                                                )
+                                                                try {
+                                                                    while (true) {
+                                                                        val ev = awaitPointerEvent()
+                                                                        val ch = ev.changes.firstOrNull { it.id == down.id }
+                                                                        if (ch == null || !ch.pressed || ch.isConsumed) break
+                                                                    }
+                                                                } finally {
+                                                                    pressNormOffset = Offset.Zero
+                                                                }
+                                                            }
+                                                        }
+                                                        .then(cardModifier),
                                                 ) {
                                                     if (p.isFolder) {
                                                         FolderThumbnailBox(
@@ -1350,7 +1157,8 @@ fun HomePage(vm: PaintViewModel) {
                                                             isSelected = isSelected,
                                                             isSelectMode = isSelectMode,
                                                             isFolderCover = currentFolder != null && p.isFolderCover,
-                                                            isMergeTarget = hoveredMergeArtworkKey == p.filePath && isMergeReady,
+                                                            isMergePending = isMergePendingTarget,
+                                                            isMergeTarget = isMergeReadyTarget,
                                                             colors = colors,
                                                         )
                                                     }
@@ -1360,6 +1168,7 @@ fun HomePage(vm: PaintViewModel) {
                                                     project = p,
                                                     isSelectMode = isSelectMode,
                                                     colors = colors,
+                                                    showDetails = vm.galleryShowCardMeta,
                                                     onRenameClick = {
                                                         if (isSelectMode) {
                                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1406,6 +1215,15 @@ fun HomePage(vm: PaintViewModel) {
                                                 )
                                                 if (!p.isFolder) {
                                                     HomeDropdownMenuItem(
+                                                        text = stringResource(R.string.collab_project_menu_host),
+                                                        icon = R.drawable.ic_cloud,
+                                                        onClick = {
+                                                            longPressedProject = null
+                                                            vm.collab.preselectedCreateProject = p
+                                                            vm.collab.showLobbyDialog = true
+                                                        },
+                                                    )
+                                                    HomeDropdownMenuItem(
                                                         text = stringResource(R.string.gallery_action_replay),
                                                         icon = R.drawable.ic_play,
                                                         onClick = {
@@ -1414,6 +1232,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         },
                                                     )
                                                 }
+                                                GalleryMenuDivider(colors)
                                                 if (!p.isFolder) {
                                                     HomeDropdownMenuItem(
                                                         text = stringResource(R.string.gallery_action_share_artwork),
@@ -1475,6 +1294,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         },
                                                     )
                                                 }
+                                                GalleryMenuDivider(colors)
                                                 HomeDropdownMenuItem(
                                                     text = stringResource(R.string.home_draft_rename),
                                                     icon = R.drawable.ic_pencil,
@@ -1493,6 +1313,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         detailsProject = p
                                                     },
                                                 )
+                                                GalleryMenuDivider(colors)
                                                 HomeDropdownMenuItem(
                                                     text = if (p.isFolder) stringResource(R.string.gallery_action_delete_stack) else stringResource(R.string.gallery_action_delete_artwork),
                                                     icon = R.drawable.ic_trash,
@@ -1508,9 +1329,15 @@ fun HomePage(vm: PaintViewModel) {
                                 }
                             }
                         }
-                    } // Added closing brace for Column
-                }
-            } else {
+
+                        // 崩溃遥测首启一次性告知条 (非模态; 未注入端点时自身不渲染)
+                        TelemetryNoticeBar(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = topContentInset, start = gridHPadding, end = gridHPadding),
+                        )
+                    }
+                } else {
                 // Settings Tab
                 Box(modifier = Modifier.fillMaxSize()) {
                     SettingsPageContent(vm)
@@ -1521,6 +1348,79 @@ fun HomePage(vm: PaintViewModel) {
 
         val inGallerySelectMode = isSelectMode && selectedTab == 0
         val effectiveBarHaze = if (vm.blurBackground) hazeState else null
+
+        // 悬浮毛玻璃顶栏 (与底栏同处 hazeSource 兄弟层级以正确采样实时模糊, 切页相位对齐 HomeTabTransition)
+        AnimatedVisibility(
+            visible = selectedTab == 0,
+            enter = when (Motion.currentSpeed) {
+                UiAnimationSpeed.OFF -> EnterTransition.None
+                UiAnimationSpeed.FAST -> slideInHorizontally(tween(90, easing = FastOutSlowInEasing)) { -(it / 20) } + fadeIn(tween(90))
+                UiAnimationSpeed.NORMAL -> slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) { -(it / 16) } + fadeIn(tween(240, easing = FastOutSlowInEasing))
+            },
+            exit = when (Motion.currentSpeed) {
+                UiAnimationSpeed.OFF -> ExitTransition.None
+                UiAnimationSpeed.FAST -> slideOutHorizontally(tween(70, easing = FastOutSlowInEasing)) { -(it / 24) } + fadeOut(tween(70))
+                UiAnimationSpeed.NORMAL -> slideOutHorizontally(tween(180, easing = FastOutSlowInEasing)) { -(it / 20) } + fadeOut(tween(160))
+            },
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            val allSelected = displayProjects.isNotEmpty() && selectedProjects.size == displayProjects.size
+            GalleryFloatingHeader(
+                vm = vm,
+                colors = colors,
+                hazeState = effectiveBarHaze,
+                currentFolder = currentFolder,
+                itemCount = displayProjects.size,
+                isSelectMode = isSelectMode,
+                selectedCount = selectedProjects.size,
+                allSelected = allSelected,
+                isSearchActive = isSearchActive,
+                searchQuery = vm.searchQuery,
+                isDragging = draggingProject != null,
+                isHoveringExitFolder = isHoveringExitFolder,
+                isScrolled = isGalleryScrolled,
+                hasCustomBg = hasCustomBg,
+                showMoreMenu = showMoreMenu,
+                onSearchQueryChange = { vm.searchQuery = it },
+                onOpenSearch = { isSearchActive = true },
+                onCloseSearch = {
+                    vm.searchQuery = ""
+                    isSearchActive = false
+                },
+                onExitFolder = {
+                    vm.currentFolder = null
+                    vm.refreshProjects()
+                },
+                onFolderHeaderBounds = { folderHeaderBounds = it },
+                onToggleSelectAll = {
+                    if (allSelected) {
+                        selectedProjects.clear()
+                    } else {
+                        selectedProjects.clear()
+                        selectedProjects.addAll(displayProjects)
+                    }
+                },
+                onDoneSelect = {
+                    isSelectMode = false
+                    selectedProjects.clear()
+                },
+                onToggleMoreMenu = { showMoreMenu = it },
+                onImportClick = { importLauncher.launch(arrayOf("*/*")) },
+                onEnterSelectMode = {
+                    isSelectMode = true
+                    selectedProjects.clear()
+                },
+                onNewStackClick = {
+                    newFolderName = generateDefaultStackName(displayProjects, defaultStackBaseName, defaultStackIndexedFormat)
+                    showNewFolderDialog = true
+                },
+                onAutoSaveHistoryClick = { showAutoSaveHistoryDialog = true },
+                onRefreshClick = { vm.refreshProjects() },
+                onSelectSortMode = { mode -> vm.updateGallerySortMode(mode) },
+                onSelectCardSize = { size -> vm.updateGalleryCardSize(size) },
+                onToggleShowCardMeta = { show -> vm.updateGalleryShowCardMeta(show) },
+            )
+        }
 
         AnimatedContent(
             targetState = inGallerySelectMode,
@@ -1610,86 +1510,6 @@ fun HomePage(vm: PaintViewModel) {
                     showSponsorsListDialog = true
                 },
                 onDismiss = { vm.showSponsorPromptDialog = false },
-            )
-        }
-    }
-}
-
-@Composable
-private fun HomeSearchBar(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onClose: () -> Unit,
-    colors: AppColors,
-    modifier: Modifier = Modifier,
-) {
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
-
-    Row(
-        modifier = modifier
-            .width(260.dp)
-            .height(42.dp)
-            .clip(RoundedCornerShape(21.dp))
-            .background(colors.panel.copy(alpha = 0.90f))
-            .border(1.dp, colors.border, RoundedCornerShape(21.dp))
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_search),
-            contentDescription = null,
-            tint = colors.subText,
-            modifier = Modifier.size(17.dp),
-        )
-
-        Box(modifier = Modifier.weight(1f)) {
-            if (query.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.gallery_search_hint),
-                    color = colors.subText.copy(alpha = 0.7f),
-                    fontSize = 13.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            BasicTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                singleLine = true,
-                textStyle = TextStyle(
-                    color = colors.text,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Normal,
-                ),
-                cursorBrush = SolidColor(colors.accent),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .size(26.dp)
-                .clip(CircleShape)
-                .clickable {
-                    if (query.isNotEmpty()) {
-                        onQueryChange("")
-                    } else {
-                        onClose()
-                    }
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_x),
-                contentDescription = "Close",
-                tint = colors.subText,
-                modifier = Modifier.size(15.dp),
             )
         }
     }

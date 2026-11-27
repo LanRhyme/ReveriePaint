@@ -6,9 +6,12 @@ package com.reverie.paint.core.collab
 
 import com.reverie.paint.model.CollabPendingRequest
 import com.reverie.paint.model.CollabPeer
+import com.reverie.paint.model.CollabPeerSummary
 import com.reverie.paint.model.CollabPublicRoom
 import com.reverie.paint.model.CollabRole
+import com.reverie.paint.model.CollabRoomSettingsSnapshot
 import com.reverie.paint.model.CollabRoomSummary
+import com.reverie.paint.model.CollabSavePolicy
 import com.reverie.paint.model.CollabTopologyPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +39,8 @@ data class CreatedRoomResponse(
     val iceServersJson: String,
     val expiresInMs: Long,
     val easyTierJson: String = "{}",
+    val title: String = "",
+    val savePolicy: CollabSavePolicy = CollabSavePolicy.ALL,
 )
 
 interface SignalingEventListener {
@@ -49,6 +54,8 @@ interface SignalingEventListener {
         canvasWidth: Int,
         canvasHeight: Int,
         easyTierJson: String = "{}",
+        peerToken: String = "",
+        roomSettings: CollabRoomSettingsSnapshot? = null,
     )
 
     fun onAdmitted(
@@ -60,8 +67,11 @@ interface SignalingEventListener {
         canvasWidth: Int,
         canvasHeight: Int,
         easyTierJson: String = "{}",
+        peerToken: String = "",
+        roomSettings: CollabRoomSettingsSnapshot? = null,
     )
 
+    fun onRoomUpdated(settings: CollabRoomSettingsSnapshot) {}
     fun onJoinRequest(request: CollabPendingRequest)
     fun onPeerJoined(peer: CollabPeer)
     fun onPeerLeft(peerId: String, reason: String)
@@ -110,6 +120,7 @@ class SignalingClient(
         canvasHeight: Int,
         isPublic: Boolean = false,
         title: String = "",
+        savePolicy: CollabSavePolicy = CollabSavePolicy.ALL,
     ): Result<CreatedRoomResponse> = withContext(Dispatchers.IO) {
         runCatching {
             val cleanBase = normalizeBaseUrl(baseUrl)
@@ -122,6 +133,7 @@ class SignalingClient(
                 put("maxPeers", maxPeers)
                 put("isPublic", isPublic)
                 if (cleanTitle.isNotEmpty()) put("title", cleanTitle)
+                put("savePolicy", savePolicy.wireValue)
                 put("canvasMeta", JSONObject().apply {
                     put("width", canvasWidth)
                     put("height", canvasHeight)
@@ -144,6 +156,8 @@ class SignalingClient(
                     iceServersJson = json.optJSONArray("iceServers")?.toString() ?: "[]",
                     expiresInMs = json.optLong("expiresInMs", 86400_000L),
                     easyTierJson = json.optJSONObject("easyTier")?.toString() ?: "{}",
+                    title = json.optString("title", cleanTitle),
+                    savePolicy = CollabSavePolicy.fromWire(json.optString("savePolicy")),
                 )
             }
         }
@@ -176,6 +190,19 @@ class SignalingClient(
                         }
                     }
                 }
+                val peersArr = json.optJSONArray("peers")
+                val peers = buildList {
+                    if (peersArr != null) {
+                        for (i in 0 until peersArr.length()) {
+                            val po = peersArr.optJSONObject(i) ?: continue
+                            val pid = po.optString("peerId").trim()
+                            val pName = po.optString("name").trim()
+                            if (pid.isNotEmpty() && pName.isNotEmpty()) {
+                                add(CollabPeerSummary(peerId = pid, name = pName))
+                            }
+                        }
+                    }
+                }
                 CollabRoomSummary(
                     roomCode = json.getString("roomCode"),
                     hostPeerId = json.getString("hostPeerId"),
@@ -187,8 +214,10 @@ class SignalingClient(
                     canvasWidth = meta?.optInt("width", 0) ?: 0,
                     canvasHeight = meta?.optInt("height", 0) ?: 0,
                     peerNames = peerNames,
+                    peers = peers,
                     isPublic = json.optBoolean("isPublic", false),
                     title = json.optString("title", ""),
+                    savePolicy = CollabSavePolicy.fromWire(json.optString("savePolicy")),
                 )
             }
         }
@@ -227,6 +256,7 @@ class SignalingClient(
                                 maxPeers = obj.optInt("maxPeers", 16).coerceAtLeast(2),
                                 hasPassword = obj.optBoolean("hasPassword", false),
                                 requireApproval = obj.optBoolean("requireApproval", false),
+                                savePolicy = CollabSavePolicy.fromWire(obj.optString("savePolicy")),
                                 canvasWidth = obj.optInt("canvasWidth", 0),
                                 canvasHeight = obj.optInt("canvasHeight", 0),
                                 createdAt = obj.optLong("createdAt", 0L),
@@ -248,6 +278,7 @@ class SignalingClient(
         name: String,
         password: String?,
         listener: SignalingEventListener,
+        peerToken: String? = null,
     ) {
         disconnect()
         val cleanBase = normalizeBaseUrl(baseUrl)
@@ -263,6 +294,9 @@ class SignalingClient(
             .addQueryParameter("name", name)
         if (!hostToken.isNullOrEmpty() && role == CollabRole.HOST) {
             urlBuilder.addQueryParameter("token", hostToken)
+        }
+        if (!peerToken.isNullOrEmpty()) {
+            urlBuilder.addQueryParameter("pt", peerToken)
         }
         if (!password.isNullOrEmpty()) {
             urlBuilder.addQueryParameter("pw", password)
@@ -336,6 +370,52 @@ class SignalingClient(
 
     fun claimHost(): Boolean =
         sendJson(JSONObject().apply { put("type", "claim_host") })
+
+    fun updateRoom(
+        isPublic: Boolean,
+        title: String,
+        requireApproval: Boolean,
+        maxPeers: Int,
+        passwordUpdate: String? = null,
+    ): Boolean = sendJson(
+        JSONObject().apply {
+            put("type", "update_room")
+            put("isPublic", isPublic)
+            put("title", CollabTopologyPolicy.sanitizeRoomTitle(title))
+            put("requireApproval", requireApproval)
+            put("maxPeers", maxPeers)
+            if (passwordUpdate != null) {
+                put("password", passwordUpdate)
+            }
+        },
+    )
+
+    fun probeAliveNow(onDead: () -> Unit) {
+        val ws = webSocket
+        if (ws == null) {
+            onDead()
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            val sentAt = nowMs()
+            val sent = runCatching { ws.send("ping") }.getOrDefault(false)
+            if (!sent) {
+                ws.cancel()
+                onDead()
+                return@launch
+            }
+            while (isActive) {
+                delay(250L)
+                if (webSocket !== ws) return@launch
+                if (lastInboundMs >= sentAt) return@launch
+                if (nowMs() - sentAt >= 2_500L) {
+                    ws.cancel()
+                    onDead()
+                    return@launch
+                }
+            }
+        }
+    }
 
     fun closeRoom(): Boolean =
         sendJson(JSONObject().apply { put("type", "close_room") })
@@ -434,6 +514,8 @@ class SignalingClient(
                     canvasWidth = meta?.optInt("width", 0) ?: 0,
                     canvasHeight = meta?.optInt("height", 0) ?: 0,
                     easyTierJson = msg.optJSONObject("easyTier")?.toString() ?: "{}",
+                    peerToken = msg.optString("peerToken"),
+                    roomSettings = parseRoomSettings(msg),
                 )
             }
             "admitted" -> {
@@ -447,8 +529,11 @@ class SignalingClient(
                     canvasWidth = meta?.optInt("width", 0) ?: 0,
                     canvasHeight = meta?.optInt("height", 0) ?: 0,
                     easyTierJson = msg.optJSONObject("easyTier")?.toString() ?: "{}",
+                    peerToken = msg.optString("peerToken"),
+                    roomSettings = parseRoomSettings(msg),
                 )
             }
+            "room_updated" -> listener.onRoomUpdated(parseRoomSettings(msg))
             "join_request" -> {
                 val p = msg.optJSONObject("peer") ?: return
                 listener.onJoinRequest(
@@ -493,6 +578,16 @@ class SignalingClient(
             "error" -> listener.onError(msg.optString("code", "error"), msg.optString("message", ""))
         }
     }
+
+    private fun parseRoomSettings(msg: JSONObject): CollabRoomSettingsSnapshot =
+        CollabRoomSettingsSnapshot(
+            isPublic = msg.optBoolean("isPublic", false),
+            title = msg.optString("title", ""),
+            hasPassword = msg.optBoolean("hasPassword", false),
+            requireApproval = msg.optBoolean("requireApproval", false),
+            maxPeers = msg.optInt("maxPeers", 10).coerceIn(2, 32),
+            savePolicy = CollabSavePolicy.fromWire(msg.optString("savePolicy")),
+        )
 
     private fun parsePeers(arr: JSONArray?): List<CollabPeer> {
         if (arr == null) return emptyList()

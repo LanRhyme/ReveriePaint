@@ -4,6 +4,8 @@
 
 package com.reverie.paint.model
 
+import java.util.Locale
+
 /**
  * GitHub Release 附件资源
  */
@@ -215,17 +217,113 @@ object VersionComparator {
 }
 
 /**
+ * 双语更新日志解析与按语言裁剪工具
+ */
+object ReleaseNotesLocalizer {
+    private val EN_MARKERS = setOf("english", "en", "en-us", "english (en)")
+    private val ZH_MARKERS = setOf("简体中文", "中文", "chinese", "zh", "zh-cn", "简体中文 (zh-cn)", "中文 (简体)")
+    private val HEADING_LINE_REGEX = Regex("""^#{1,2}\s+(.+?)\s*$""")
+    private val HR_LINE_REGEX = Regex("""^\s*(?:[-*_]\s*){3,}$""")
+    private val SWITCHER_LINE_REGEX = Regex("""^\s*\[English]\([^)]+\)\s*\|\s*\[简体中文]\([^)]+\)\s*$""", RegexOption.IGNORE_CASE)
+
+    fun shouldPreferChinese(locale: Locale): Boolean {
+        val lang = locale.language.lowercase(Locale.ROOT)
+        return lang == "zh" || lang == "cat"
+    }
+
+    fun selectLanguageSection(body: String, preferChinese: Boolean): String {
+        val normalized = body.replace("\r\n", "\n").replace('\r', '\n').trim()
+        if (normalized.isEmpty()) return ""
+
+        val enLines = mutableListOf<String>()
+        val zhLines = mutableListOf<String>()
+        var currentTarget: MutableList<String>? = null
+        var sawAnyLanguageHeader = false
+
+        for (line in normalized.split('\n')) {
+            val match = HEADING_LINE_REGEX.matchEntire(line.trim())
+            val titleKey = match?.groupValues?.get(1)?.trim()?.lowercase(Locale.ROOT)
+            when {
+                titleKey in EN_MARKERS -> {
+                    sawAnyLanguageHeader = true
+                    currentTarget = enLines
+                }
+                titleKey in ZH_MARKERS -> {
+                    sawAnyLanguageHeader = true
+                    currentTarget = zhLines
+                }
+                else -> currentTarget?.add(line)
+            }
+        }
+
+        if (!sawAnyLanguageHeader) return normalized
+
+        val enText = trimSectionEdges(enLines)
+        val zhText = trimSectionEdges(zhLines)
+        return when {
+            preferChinese && zhText.isNotEmpty() -> zhText
+            !preferChinese && enText.isNotEmpty() -> enText
+            zhText.isNotEmpty() -> zhText
+            enText.isNotEmpty() -> enText
+            else -> normalized
+        }
+    }
+
+    fun stripDocumentHeader(markdown: String): String {
+        val normalized = markdown.replace("\r\n", "\n").replace('\r', '\n')
+        val lines = normalized.split('\n').toMutableList()
+        while (lines.isNotEmpty() && lines.first().isBlank()) {
+            lines.removeAt(0)
+        }
+        if (lines.isNotEmpty() && lines.first().trimStart().startsWith("# ")) {
+            lines.removeAt(0)
+        }
+        while (lines.isNotEmpty() && lines.first().isBlank()) {
+            lines.removeAt(0)
+        }
+        if (lines.isNotEmpty() && SWITCHER_LINE_REGEX.matches(lines.first())) {
+            lines.removeAt(0)
+        }
+        while (lines.isNotEmpty() && (lines.first().isBlank() || HR_LINE_REGEX.matches(lines.first()))) {
+            lines.removeAt(0)
+        }
+        return lines.joinToString("\n").trim()
+    }
+
+    private fun trimSectionEdges(lines: List<String>): String {
+        var start = 0
+        var end = lines.size
+        while (start < end && (lines[start].isBlank() || HR_LINE_REGEX.matches(lines[start]))) {
+            start++
+        }
+        while (end > start && (lines[end - 1].isBlank() || HR_LINE_REGEX.matches(lines[end - 1]))) {
+            end--
+        }
+        return if (start < end) lines.subList(start, end).joinToString("\n").trim() else ""
+    }
+}
+
+/**
  * 聚合从当前版本到最新版本之间的更新日志
  */
 object ReleaseNotesAggregator {
     fun mergeNewerReleaseNotes(
         releases: List<Pair<String, String>>,
         currentVersion: String,
+        preferChinese: Boolean? = null,
     ): String {
         val newer = releases
-            .filter { (tag, body) ->
-                tag.isNotBlank() && body.isNotBlank() &&
-                    VersionComparator.isNewerVersion(tag, currentVersion)
+            .mapNotNull { (tag, body) ->
+                if (tag.isBlank() || body.isBlank() || !VersionComparator.isNewerVersion(tag, currentVersion)) {
+                    null
+                } else {
+                    val localized = if (preferChinese != null) {
+                        ReleaseNotesLocalizer.selectLanguageSection(body, preferChinese)
+                    } else {
+                        body.trim()
+                    }
+                    if (localized.isBlank()) null else (tag to localized)
+                }
             }
             .sortedWith { a, b ->
                 VersionComparator.parse(b.first).compareTo(VersionComparator.parse(a.first))

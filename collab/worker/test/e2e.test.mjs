@@ -609,3 +609,135 @@ describe('房间有效期', () => {
     assert.equal(await host.waitClosing(), true);
   });
 });
+
+describe('房间配置更新、保存权限与断线恢复', () => {
+  it('savePolicy 在建房时持久化到 info 与公开大厅, 且 update_room 不可篡改', async () => {
+    const created = await client.createRoom({
+      hostPeerId: 'p_host_savepol',
+      hostName: '限存房主',
+      isPublic: false,
+      title: '私密房间标题',
+      savePolicy: 'own_only',
+    });
+    assert.equal(created.ok, true);
+    assert.equal(created.body.savePolicy, 'own_only');
+    assert.equal(created.body.title, '私密房间标题');
+
+    const host = await client.connect({
+      roomCode: created.body.roomCode,
+      peerId: 'p_host_savepol',
+      name: '限存房主',
+      role: 'host',
+      token: created.body.hostToken,
+    });
+    const hostWelcome = await host.waitFor((m) => m.type === 'welcome');
+    assert.equal(hostWelcome.savePolicy, 'own_only');
+    assert.ok(hostWelcome.peerToken?.length > 10);
+
+    const peer = await client.connect({
+      roomCode: created.body.roomCode,
+      peerId: 'p_peer_savepol',
+      name: '成员丙',
+    });
+    const peerWelcome = await peer.waitFor((m) => m.type === 'welcome');
+    assert.equal(peerWelcome.savePolicy, 'own_only');
+    peer.clear();
+    host.clear();
+
+    // 非房主尝试 update_room 必须被拒
+    peer.send({ type: 'update_room', isPublic: true, title: '越权' });
+    const hostOnlyErr = await peer.waitFor((m) => m.type === 'error');
+    assert.equal(hostOnlyErr.code, 'host_only');
+
+    // 房主将房间切为公开并尝试附带 savePolicy: 'all', 服务端必须忽略 savePolicy 修改
+    host.send({
+      type: 'update_room',
+      isPublic: true,
+      title: '公开后的画室',
+      requireApproval: true,
+      maxPeers: 12,
+      password: 'new-secret',
+      savePolicy: 'all',
+    });
+    const hostUpd = await host.waitFor((m) => m.type === 'room_updated');
+    const peerUpd = await peer.waitFor((m) => m.type === 'room_updated');
+    for (const u of [hostUpd, peerUpd]) {
+      assert.equal(u.isPublic, true);
+      assert.equal(u.title, '公开后的画室');
+      assert.equal(u.hasPassword, true);
+      assert.equal(u.requireApproval, true);
+      assert.equal(u.maxPeers, 12);
+      assert.equal(u.savePolicy, 'own_only', 'savePolicy 建房后不可编辑');
+    }
+
+    await sleep(200);
+    const listed = (await client.listRooms()).body.rooms.find((r) => r.roomCode === created.body.roomCode);
+    assert.ok(listed, '切为公开后应出现在在线大厅');
+    assert.equal(listed.title, '公开后的画室');
+    assert.equal(listed.savePolicy, 'own_only');
+    assert.equal(listed.hasPassword, true);
+
+    // 再切换回私密隐藏 + 清空密码 + 无标题公开失败校验
+    host.send({ type: 'update_room', isPublic: false, title: '', password: '' });
+    const hiddenUpd = await host.waitFor((m) => m.type === 'room_updated' && m.isPublic === false);
+    assert.equal(hiddenUpd.hasPassword, false);
+    await sleep(200);
+    const listedAfterHide = (await client.listRooms()).body.rooms.some((r) => r.roomCode === created.body.roomCode);
+    assert.equal(listedAfterHide, false, '隐藏房间后必须立即从大厅下架');
+
+    host.clear();
+    host.send({ type: 'update_room', isPublic: true, title: '' });
+    const titleErr = await host.waitFor((m) => m.type === 'error');
+    assert.equal(titleErr.code, 'room_title_required');
+
+    peer.close();
+    host.close();
+  });
+
+  it('断线重连恢复: 持 peerToken 在超过 ghost TTL 且房主改密/开审批后仍可直接恢复原身份', async () => {
+    const room = await openRoom(client, {
+      hostPeerId: 'p_host_rec',
+      password: 'oldpw',
+      requireApproval: false,
+    });
+    const peer = await client.connect({
+      roomCode: room.roomCode,
+      peerId: 'p_peer_rec',
+      name: '老画师',
+      password: 'oldpw',
+    });
+    const w1 = await peer.waitFor((m) => m.type === 'welcome');
+    assert.equal(w1.status, 'admitted');
+    const peerToken = w1.peerToken;
+    const origVip = w1.peers.find((p) => p.peerId === 'p_peer_rec').virtualIp;
+    const origJoinedAt = w1.peers.find((p) => p.peerId === 'p_peer_rec').joinedAt;
+    assert.ok(peerToken);
+
+    // 成员掉线并超过 ghost TTL (3s), 期间房主开启审批并更换密码
+    peer.close();
+    await sleep(3400);
+    room.host.send({ type: 'update_room', requireApproval: true, password: 'newpw' });
+    await room.host.waitFor((m) => m.type === 'room_updated');
+
+    // info 返回结构化 peers 列表用于排除本人 peerId 昵称去重
+    const info = await client.roomInfo(room.roomCode);
+    assert.equal(info.status, 200);
+    assert.ok(Array.isArray(info.body.peers));
+
+    // 老成员持 peerToken 重连 (不带新密码): 应免审免新密并恢复原 VIP 与 joinedAt
+    const recovered = await client.connect({
+      roomCode: room.roomCode,
+      peerId: 'p_peer_rec',
+      name: '老画师',
+      peerToken,
+    });
+    const w2 = await recovered.waitFor((m) => m.type === 'welcome');
+    assert.equal(w2.status, 'admitted', '恢复连接不应被当作需审批的新成员');
+    const me2 = w2.peers.find((p) => p.peerId === 'p_peer_rec');
+    assert.equal(me2.virtualIp, origVip);
+    assert.equal(me2.joinedAt, origJoinedAt);
+
+    recovered.close();
+    room.host.close();
+  });
+});

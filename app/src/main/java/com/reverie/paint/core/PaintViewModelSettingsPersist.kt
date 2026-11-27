@@ -74,6 +74,44 @@ internal fun PaintViewModel.updateLayerFlashEnabled(enabled: Boolean) {
     }
 }
 
+internal fun PaintViewModel.updateGallerySortMode(mode: String) {
+    val sanitized = when (mode) {
+        "NAME", "STROKES", "MODIFIED" -> mode
+        else -> "MODIFIED"
+    }
+    gallerySortMode = sanitized
+    if (isAppContextReady()) {
+        prefs
+            .edit()
+            .putString("gallerySortMode", sanitized)
+            .apply()
+    }
+}
+
+internal fun PaintViewModel.updateGalleryCardSize(size: String) {
+    val sanitized = when (size) {
+        "COMPACT", "STANDARD", "LARGE" -> size
+        else -> "STANDARD"
+    }
+    galleryCardSize = sanitized
+    if (isAppContextReady()) {
+        prefs
+            .edit()
+            .putString("galleryCardSize", sanitized)
+            .apply()
+    }
+}
+
+internal fun PaintViewModel.updateGalleryShowCardMeta(show: Boolean) {
+    galleryShowCardMeta = show
+    if (isAppContextReady()) {
+        prefs
+            .edit()
+            .putBoolean("galleryShowCardMeta", show)
+            .apply()
+    }
+}
+
 internal fun PaintViewModel.updateMaxUndoSteps(steps: Int) {
     maxUndoSteps = steps.coerceIn(10, 200)
     if (isAppContextReady()) {
@@ -117,6 +155,7 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         com.reverie.paint.core.stylus.FrontBufferProbe.warmUpPreservedContentCheck(appContext)
         // Toolbar choices must restore even when no brush parameter cache has been saved yet.
         loadPinnedTools()
+        loadCustomToolIcons()
         anim.manualKeyframes = prefs.getBoolean(ANIMATION_MANUAL_KEYFRAMES_PREF, false)
         // 性能标尺: 设置项(仅 debug 构建有该入口, 见 PerfHud)或 setprop 任一为真即为开。
         // 用 PerfHud.readPref 而不是直接读偏好 —— 正式版恒 false, 避免残留偏好默默开着标尺。
@@ -209,10 +248,22 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         homeCustomBgScaleMode = prefs.getString("home_custom_bg_scale", "CROP") ?: "CROP"
         homeCustomBgMaskAlpha = prefs.getFloat("home_custom_bg_mask", 0.2f).coerceIn(0f, 0.8f)
         homeCustomBgVersion = System.currentTimeMillis()
-        monetEnabled = prefs.getBoolean("monetEnabled", false)
+        monetEnabled = prefs.getBoolean("monetEnabled", true) &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
         themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
         themeContrast = prefs.getString("themeContrast", "STANDARD") ?: "STANDARD"
         themeStyle = prefs.getString("themeStyle", com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED) ?: com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED
+        gallerySortMode = when (prefs.getString("gallerySortMode", "MODIFIED")) {
+            "NAME" -> "NAME"
+            "STROKES" -> "STROKES"
+            else -> "MODIFIED"
+        }
+        galleryCardSize = when (prefs.getString("galleryCardSize", "STANDARD")) {
+            "COMPACT" -> "COMPACT"
+            "LARGE" -> "LARGE"
+            else -> "STANDARD"
+        }
+        galleryShowCardMeta = prefs.getBoolean("galleryShowCardMeta", true)
         immersiveMode = true
         extendToCutout = prefs.getBoolean("extendToCutout", true)
         penOnlyMode = prefs.getBoolean("penOnlyMode", false)

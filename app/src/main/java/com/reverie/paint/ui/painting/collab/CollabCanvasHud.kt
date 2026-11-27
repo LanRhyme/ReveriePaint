@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,15 +46,17 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.approveCollabPeer
+import com.reverie.paint.core.dismissRecoverableCollabSession
 import com.reverie.paint.core.reconnectCollabNow
+import com.reverie.paint.core.recoverLastCollabSession
 import com.reverie.paint.core.rejectCollabPeer
+import com.reverie.paint.core.setCollabForceRelayEnabled
 import com.reverie.paint.model.CollabConnectionPhase
 import com.reverie.paint.model.CollabPublicRoom
 import com.reverie.paint.model.CollabRole
 import com.reverie.paint.ui.components.Dimens
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.ReTextButton
-import com.reverie.paint.ui.components.ReTextInput
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.glassBorder
 
@@ -181,6 +182,48 @@ internal fun CollabCanvasHud(
                         .fillMaxWidth()
                         .height(4.dp)
                         .clip(RoundedCornerShape(2.dp)),
+                )
+            }
+        } else if (
+            collab.role == CollabRole.PEER &&
+            !collab.hasReceivedInitialSnapshot &&
+            collab.phase == CollabConnectionPhase.CONNECTED
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(pillShape)
+                    .background(colors.panel.copy(alpha = 0.94f))
+                    .glassBorder(pillShape)
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(HUD_STATUS_AMBER),
+                )
+                Text(
+                    text = stringResource(R.string.collab_waiting_initial_snapshot),
+                    color = colors.text,
+                    fontSize = 11.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (!collab.forceRelayEnabled && !collab.networkDiag.forceRelayMode) {
+                    ReTextButton(
+                        text = stringResource(R.string.collab_switch_relay_btn),
+                        onClick = { vm.setCollabForceRelayEnabled(true) },
+                        fontSize = 11.sp,
+                    )
+                }
+                ReTextButton(
+                    text = stringResource(R.string.collab_reconnect_now),
+                    onClick = { vm.reconnectCollabNow() },
+                    fontSize = 11.sp,
                 )
             }
         }
@@ -374,18 +417,24 @@ internal fun CollabLockedRoomPasswordDialog(
                 PanelCloseButton(onClose = onDismiss)
             }
 
-            ReTextInput(
+            CollabTextField(
                 value = pw,
                 onValueChange = { pw = it.take(32) },
                 placeholder = stringResource(R.string.collab_password_required_hint),
                 visualTransformation = if (pwVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 trailingIcon = {
-                    IconButton(onClick = { pwVisible = !pwVisible }) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { pwVisible = !pwVisible },
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Icon(
                             painter = painterResource(if (pwVisible) R.drawable.ic_eye else R.drawable.ic_eye_off),
                             contentDescription = stringResource(R.string.collab_toggle_password_vis),
                             tint = colors.subText,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(16.dp),
                         )
                     }
                 },
@@ -413,5 +462,73 @@ internal fun CollabLockedRoomPasswordDialog(
                 )
             }
         }
+    }
+}
+
+/** 断线/重启后检测到仍活跃的上一场茶绘会话恢复提示条 (供主页与茶绘大厅共用) */
+@Composable
+internal fun CollabSessionRecoveryBanner(
+    vm: PaintViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val session = vm.collab.recoverableSession
+    if (!vm.collab.showRecoveryBanner || session == null || vm.collab.isActive) return
+    val colors = Theme.current
+    val shape = RoundedCornerShape(14.dp)
+    val displayTitle = session.roomTitle.ifBlank { session.roomCode }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(colors.accent.copy(alpha = 0.12f))
+            .glassBorder(shape)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(colors.accent.copy(alpha = 0.18f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_cloud),
+                contentDescription = null,
+                tint = colors.accent,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.collab_recovery_banner_title, displayTitle),
+                color = colors.text,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = stringResource(R.string.collab_recovery_banner_code, session.roomCode),
+                color = colors.subText,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        ReTextButton(
+            text = stringResource(R.string.collab_recovery_dismiss_btn),
+            onClick = { vm.dismissRecoverableCollabSession() },
+            textColor = colors.subText,
+            fontSize = 11.5.sp,
+        )
+        ReTextButton(
+            text = stringResource(R.string.collab_recovery_resume_btn),
+            onClick = { vm.recoverLastCollabSession() },
+            primary = true,
+            fontSize = 11.5.sp,
+        )
     }
 }

@@ -1,3 +1,11 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.security.MessageDigest
 import java.util.Properties
@@ -56,6 +64,27 @@ val telemetryKey = if (telemetryOff) {
         ?: localProps.getProperty("TELEMETRY_KEY", "")
 }
 
+abstract class SyncChangelogAssetsTask : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val enChangelog: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val zhChangelog: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun sync() {
+        val out = outputDir.get().asFile
+        out.mkdirs()
+        enChangelog.get().asFile.copyTo(out.resolve("CHANGELOG.md"), overwrite = true)
+        zhChangelog.get().asFile.copyTo(out.resolve("CHANGELOG_ZH.md"), overwrite = true)
+    }
+}
+
 android {
     namespace = "com.reverie.paint"
     compileSdk = 36
@@ -77,8 +106,8 @@ android {
         }
         minSdk = 23
         targetSdk = 33
-        versionCode = 72
-        versionName = "1.11.1"
+        versionCode = 73
+        versionName = "1.11.2"
 
         buildConfigField("String", "AIFADIAN_API_TOKEN", "\"$aifadianApiToken\"")
         buildConfigField("String", "AIFADIAN_USER_ID", "\"$aifadianUserId\"")
@@ -248,6 +277,17 @@ android {
         baseline = file("lint-baseline.xml")
         abortOnError = true
         disable += "MissingTranslation"
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val taskName = "sync${variant.name.replaceFirstChar { it.uppercase() }}ChangelogAssets"
+        val syncTask = tasks.register<SyncChangelogAssetsTask>(taskName) {
+            enChangelog.set(rootProject.layout.projectDirectory.file("CHANGELOG.md"))
+            zhChangelog.set(rootProject.layout.projectDirectory.file("CHANGELOG_ZH.md"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(syncTask, SyncChangelogAssetsTask::outputDir)
     }
 }
 

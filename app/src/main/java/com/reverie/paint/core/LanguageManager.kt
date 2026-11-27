@@ -14,6 +14,7 @@ import android.os.LocaleList
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.reverie.paint.model.LocaleResolution
 import java.util.Locale
 
 enum class AppLanguage(
@@ -49,25 +50,52 @@ object LanguageManager {
         val savedCode = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_APP_LANGUAGE, "") ?: ""
         currentLanguage = AppLanguage.fromCode(savedCode)
+        val targetLocale = getLocale(currentLanguage, context)
+        Locale.setDefault(targetLocale)
+        applyLocaleToResources(context.applicationContext.resources, targetLocale)
     }
 
-    fun getLocale(language: AppLanguage = currentLanguage): Locale {
-        return when (language) {
-            AppLanguage.ZH_CN -> Locale.SIMPLIFIED_CHINESE
-            AppLanguage.ZH_TW -> Locale.TRADITIONAL_CHINESE
-            AppLanguage.EN -> Locale.ENGLISH
-            AppLanguage.JA -> Locale.JAPANESE
-            AppLanguage.CAT -> Locale("cat")
-            AppLanguage.FOLLOW_SYSTEM -> {
-                val sysLocales = Resources.getSystem().configuration.locales
-                if (!sysLocales.isEmpty) sysLocales[0] else Locale.getDefault()
+    private fun readSystemLocales(context: Context?): List<Locale> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && context != null) {
+            try {
+                val appLocales = context.getSystemService(LocaleManager::class.java)?.applicationLocales
+                if (appLocales != null && !appLocales.isEmpty) {
+                    return List(appLocales.size()) { appLocales[it] }
+                }
+            } catch (_: Exception) {
             }
+        }
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val sysLocales = Resources.getSystem().configuration.locales
+            List(sysLocales.size()) { sysLocales[it] }
+        } else {
+            @Suppress("DEPRECATION")
+            listOfNotNull(Resources.getSystem().configuration.locale)
         }
     }
 
+    private fun applyLocaleToConfiguration(config: Configuration, locale: Locale) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            config.setLocales(LocaleList(locale))
+        } else {
+            @Suppress("DEPRECATION")
+            config.setLocale(locale)
+        }
+    }
+
+    private fun applyLocaleToResources(res: Resources, locale: Locale) {
+        val config = Configuration(res.configuration)
+        applyLocaleToConfiguration(config, locale)
+        @Suppress("DEPRECATION")
+        res.updateConfiguration(config, res.displayMetrics)
+    }
+
+    fun getLocale(language: AppLanguage = currentLanguage, context: Context? = null): Locale {
+        return LocaleResolution.resolveLocale(language.code, readSystemLocales(context))
+    }
+
     fun isChinese(language: AppLanguage = currentLanguage): Boolean {
-        return language == AppLanguage.ZH_CN || language == AppLanguage.ZH_TW ||
-            getLocale(language).language.startsWith("zh")
+        return LocaleResolution.isChineseLocale(getLocale(language))
     }
 
     fun setLanguage(activity: Activity, language: AppLanguage) {
@@ -93,21 +121,12 @@ object LanguageManager {
             }
         }
 
-        // 更新应用资源配置以达到即时热刷新
-        val targetLocale = getLocale(language)
+        // 更新应用资源配置以达到即时热刷新 (FOLLOW_SYSTEM 时传 null 读取最新系统语言列表)
+        val targetLocale = getLocale(language, context = null)
         Locale.setDefault(targetLocale)
 
-        val res = activity.resources
-        val config = Configuration(res.configuration)
-        config.setLocale(targetLocale)
-        @Suppress("DEPRECATION")
-        res.updateConfiguration(config, res.displayMetrics)
-
-        val appRes = activity.applicationContext.resources
-        val appConfig = Configuration(appRes.configuration)
-        appConfig.setLocale(targetLocale)
-        @Suppress("DEPRECATION")
-        appRes.updateConfiguration(appConfig, appRes.displayMetrics)
+        applyLocaleToResources(activity.resources, targetLocale)
+        applyLocaleToResources(activity.applicationContext.resources, targetLocale)
 
         // 重启 Activity 完成完整重构
         activity.recreate()
@@ -116,16 +135,13 @@ object LanguageManager {
     fun wrapContext(baseContext: Context): Context {
         val savedCode = baseContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_APP_LANGUAGE, "") ?: ""
-        if (savedCode.isEmpty()) {
-            return baseContext
-        }
         val lang = AppLanguage.fromCode(savedCode)
-        val targetLocale = getLocale(lang)
+        val targetLocale = getLocale(lang, baseContext)
 
         Locale.setDefault(targetLocale)
 
         val config = Configuration(baseContext.resources.configuration)
-        config.setLocale(targetLocale)
+        applyLocaleToConfiguration(config, targetLocale)
         return baseContext.createConfigurationContext(config)
     }
 }
