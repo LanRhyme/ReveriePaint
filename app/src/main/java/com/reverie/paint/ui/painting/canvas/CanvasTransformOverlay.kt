@@ -32,6 +32,20 @@ private var cachedDistortCropBmp: android.graphics.Bitmap? = null
 private const val DISTORT_LINE_SAMPLES = 21
 private val distortGridBorderPath = Path()
 private val distortGridInnerPath = Path()
+private var cachedSnapDashScale = -1f
+private var cachedSnapDashEffect: androidx.compose.ui.graphics.PathEffect? = null
+
+private fun snapGuideDashEffect(dashStepBmp: Float): androidx.compose.ui.graphics.PathEffect {
+    val cached = cachedSnapDashEffect
+    if (cached != null && kotlin.math.abs(dashStepBmp - cachedSnapDashScale) < 0.05f) {
+        return cached
+    }
+    val step = dashStepBmp.coerceAtLeast(1f)
+    return androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(step, step), 0f).also {
+        cachedSnapDashScale = dashStepBmp
+        cachedSnapDashEffect = it
+    }
+}
 
 internal fun DrawScope.drawTransformPreview(
     vm: PaintViewModel,
@@ -243,6 +257,46 @@ internal fun DrawScope.drawTransformHandles(
                     val bx = { p: Offset -> Offset(p.x * scX - bmp.width / 2f, p.y * scY - bmp.height / 2f) }
                     val handles = tfHandles(tfState).map { bx(it) }
                     val currentScale = zoom * fitScale
+
+                    if (tfState.handle >= 0) {
+                        val docW = vm.docWidth.toFloat().coerceAtLeast(1f)
+                        val docH = vm.docHeight.toFloat().coerceAtLeast(1f)
+                        val guideColor = Morandi.accent.copy(alpha = 0.85f)
+                        val guideStrokeW = 1.dp.toPx() / maxOf(0.01f, currentScale)
+                        val guideDash = snapGuideDashEffect(6.dp.toPx() / maxOf(0.01f, currentScale))
+                        if (tfState.snapCenterX) {
+                            drawLine(
+                                color = guideColor,
+                                start = bx(Offset(docW / 2f, 0f)),
+                                end = bx(Offset(docW / 2f, docH)),
+                                strokeWidth = guideStrokeW,
+                                pathEffect = guideDash,
+                            )
+                        }
+                        if (tfState.snapCenterY) {
+                            drawLine(
+                                color = guideColor,
+                                start = bx(Offset(0f, docH / 2f)),
+                                end = bx(Offset(docW, docH / 2f)),
+                                strokeWidth = guideStrokeW,
+                                pathEffect = guideDash,
+                            )
+                        }
+                        val guideOrigin = tfState.snapGuideOrigin
+                        val guideAxisDeg = tfState.snapGuideAxisDeg
+                        if (guideOrigin != null && guideAxisDeg != null) {
+                            val rad = Math.toRadians(guideAxisDeg.toDouble())
+                            val dir = Offset(kotlin.math.cos(rad).toFloat(), kotlin.math.sin(rad).toFloat())
+                            val span = kotlin.math.hypot(docW, docH)
+                            drawLine(
+                                color = guideColor,
+                                start = bx(guideOrigin - dir * span),
+                                end = bx(guideOrigin + dir * span),
+                                strokeWidth = guideStrokeW,
+                                pathEffect = guideDash,
+                            )
+                        }
+                    }
 
                     if (tfState.mode == TransformMode.DISTORT) {
                         // 3x3 Mesh Grid with continuous MLS curved lines + 16 Control Handles

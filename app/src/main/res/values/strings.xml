@@ -1623,6 +1623,7 @@
     <string name="transform_rotate_180">180°</string>
     <string name="transform_rotate">Rotate</string>
     <string name="transform_nudge">Nudge</string>
+    <string name="transform_snap">Snap</string>
     <string name="crop_apply">Apply Crop</string>
     <string name="liquify_push">Push</string>
     <string name="liquify_bloat">Bloat</string>

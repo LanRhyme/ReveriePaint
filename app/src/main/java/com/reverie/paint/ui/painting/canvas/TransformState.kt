@@ -68,8 +68,54 @@ class TransformState {
     var startQuadCorners by mutableStateOf(listOf(Offset.Zero, Offset.Zero, Offset.Zero, Offset.Zero))
     var startMeshPoints by mutableStateOf(List(16) { Offset.Zero })
 
+    // 会话级磁力/网格吸附开关 (reset 不清除) 及拖拽期瞬态参考线状态
+    var snapEnabled by mutableStateOf(false)
+    var snapGuideOrigin by mutableStateOf<Offset?>(null)
+    var snapGuideAxisDeg by mutableStateOf<Float?>(null)
+    var snapCenterX by mutableStateOf(false)
+    var snapCenterY by mutableStateOf(false)
+
     // 会话内逐手势撤销栈 (不用 Compose State 包栈; 提交/取消后 reset 清掉)
     private val gestureUndoStack = ArrayDeque<TransformGestureSnapshot>()
+    private var nudgeGestureActive = false
+
+    fun clearSnapGuides() {
+        snapGuideOrigin = null
+        snapGuideAxisDeg = null
+        snapCenterX = false
+        snapCenterY = false
+    }
+
+    fun beginNudgeGesture() {
+        if (nudgeGestureActive) return
+        nudgeGestureActive = true
+        startScaleX = scaleX
+        startScaleY = scaleY
+        startRotation = rotation
+        startTx = tx
+        startTy = ty
+        startQuadCorners = quadCorners.toList()
+        startMeshPoints = meshPoints.toList()
+    }
+
+    fun nudgeBy(dx: Float, dy: Float) {
+        tx += dx
+        ty += dy
+        if (mode == TransformMode.PERSPECTIVE) {
+            quadCorners = quadCorners.map { Offset(it.x + dx, it.y + dy) }
+        } else if (mode == TransformMode.DISTORT) {
+            meshPoints = meshPoints.map { Offset(it.x + dx, it.y + dy) }
+        }
+    }
+
+    fun endNudgeGesture() {
+        if (!nudgeGestureActive) return
+        nudgeGestureActive = false
+        val prevHandle = handle
+        handle = 8
+        pushGestureUndo()
+        handle = prevHandle
+    }
 
     fun reset(b: Rect) {
         active = true
@@ -92,6 +138,8 @@ class TransformState {
         meshPoints = mList
         origMeshPoints = mList
         handle = -1
+        nudgeGestureActive = false
+        clearSnapGuides()
         clearGestureUndo()
     }
 
@@ -165,6 +213,7 @@ class TransformState {
             meshPoints = startMeshPoints.toList()
         }
         handle = -1
+        clearSnapGuides()
         return true
     }
 }

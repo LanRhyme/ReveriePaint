@@ -26,6 +26,40 @@ import kotlin.math.sin
 private fun clampTransformScale(v: Float): Float =
     if (abs(v) < 0.02f) (if (v < 0f) -0.02f else 0.02f) else v
 
+private fun applySnappedTranslation(
+    state: TransformState,
+    originCenter: Offset,
+    startTx: Float,
+    startTy: Float,
+    rawDx: Float,
+    rawDy: Float,
+    v: PaintViewModel,
+    snapThresholdDoc: Float,
+    activeGridGuide: DrawingGuideConfig?,
+): TransformSnapResult {
+    val res = TransformSnap.snapTranslation(
+        startTx = startTx,
+        startTy = startTy,
+        rawDx = rawDx,
+        rawDy = rawDy,
+        boundsCenterX = originCenter.x,
+        boundsCenterY = originCenter.y,
+        docWidth = v.docWidth,
+        docHeight = v.docHeight,
+        snapThresholdDoc = snapThresholdDoc,
+        gridGuide = activeGridGuide,
+    )
+    state.snapGuideOrigin = if (res.snappedAxisAngleDeg != null) {
+        Offset(originCenter.x + startTx, originCenter.y + startTy)
+    } else {
+        null
+    }
+    state.snapGuideAxisDeg = res.snappedAxisAngleDeg
+    state.snapCenterX = res.snappedCenterX
+    state.snapCenterY = res.snappedCenterY
+    return res
+}
+
 internal fun CanvasTouchView.handleToolDown(
     screenPos: Offset,
     docPos: Offset,
@@ -1243,6 +1277,11 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
             if (state != null && state.active && state.handle >= 0) {
                 val c = state.bounds.center
                 val imagePos = docPos
+                val shiftHeld = (event.metaState and android.view.KeyEvent.META_SHIFT_ON) != 0
+                val snapActive = state.snapEnabled || shiftHeld
+                state.clearSnapGuides()
+                val snapThresholdDoc = (10f * density) / maxOf(0.01f, canvasZoom * canvasFitScale)
+                val activeGridGuide = v.drawingGuide.takeIf { it.mode == GuideMode.GRID_2D }
                 when {
                     state.mode == TransformMode.DISTORT -> {
                         val delta = imagePos - state.dragStart
@@ -1251,7 +1290,23 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                             newMesh[state.handle] = state.startMeshPoints[state.handle] + delta
                             state.meshPoints = newMesh
                         } else {
-                            state.meshPoints = state.startMeshPoints.map { it + delta }
+                            val finalDelta = if (snapActive) {
+                                val res = applySnappedTranslation(
+                                    state = state,
+                                    originCenter = Offset(c.x + state.startTx, c.y + state.startTy),
+                                    startTx = 0f,
+                                    startTy = 0f,
+                                    rawDx = delta.x,
+                                    rawDy = delta.y,
+                                    v = v,
+                                    snapThresholdDoc = snapThresholdDoc,
+                                    activeGridGuide = activeGridGuide,
+                                )
+                                Offset(res.tx, res.ty)
+                            } else {
+                                delta
+                            }
+                            state.meshPoints = state.startMeshPoints.map { it + finalDelta }
                         }
                     }
                     state.mode == TransformMode.PERSPECTIVE -> {
@@ -1262,14 +1317,31 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                             newCorners[idx] = state.startQuadCorners[idx] + delta
                             state.quadCorners = newCorners
                         } else {
-                            state.quadCorners = state.startQuadCorners.map { it + delta }
+                            val finalDelta = if (snapActive) {
+                                val res = applySnappedTranslation(
+                                    state = state,
+                                    originCenter = Offset(c.x + state.startTx, c.y + state.startTy),
+                                    startTx = 0f,
+                                    startTy = 0f,
+                                    rawDx = delta.x,
+                                    rawDy = delta.y,
+                                    v = v,
+                                    snapThresholdDoc = snapThresholdDoc,
+                                    activeGridGuide = activeGridGuide,
+                                )
+                                Offset(res.tx, res.ty)
+                            } else {
+                                delta
+                            }
+                            state.quadCorners = state.startQuadCorners.map { it + finalDelta }
                         }
                     }
                     state.handle == 1 || state.handle == 3 || state.handle == 9 -> {
                         val a1 = atan2(state.dragStart.y - c.y - state.startTy, state.dragStart.x - c.x - state.startTx)
                         val a2 = atan2(imagePos.y - c.y - state.startTy, imagePos.x - c.x - state.startTx)
                         val d = Math.toDegrees((a2 - a1).toDouble()).toFloat()
-                        state.rotation = state.startRotation + d
+                        val rawRot = state.startRotation + d
+                        state.rotation = if (snapActive) TransformSnap.snapRotationDeg(rawRot) else rawRot
                     }
                     state.handle == 0 || state.handle == 2 -> {
                         val rad = Math.toRadians(-state.startRotation.toDouble())
@@ -1328,8 +1400,26 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                         state.scaleX = clampTransformScale(state.startScaleX * kx)
                     }
                     state.handle == 8 -> {
-                        state.tx = state.startTx + (imagePos.x - state.dragStart.x)
-                        state.ty = state.startTy + (imagePos.y - state.dragStart.y)
+                        val rawDx = imagePos.x - state.dragStart.x
+                        val rawDy = imagePos.y - state.dragStart.y
+                        if (snapActive) {
+                            val res = applySnappedTranslation(
+                                state = state,
+                                originCenter = c,
+                                startTx = state.startTx,
+                                startTy = state.startTy,
+                                rawDx = rawDx,
+                                rawDy = rawDy,
+                                v = v,
+                                snapThresholdDoc = snapThresholdDoc,
+                                activeGridGuide = activeGridGuide,
+                            )
+                            state.tx = res.tx
+                            state.ty = res.ty
+                        } else {
+                            state.tx = state.startTx + rawDx
+                            state.ty = state.startTy + rawDy
+                        }
                     }
                 }
             }
@@ -1746,6 +1836,7 @@ internal fun CanvasTouchView.handleToolUp(event: MotionEvent, docPos: Offset, is
             activeMeasureHandle = -1
         }
         Tool.TRANSFORM -> {
+            tfState?.clearSnapGuides()
             if (isCancel) {
                 tfState?.cancelDrag()
             } else {

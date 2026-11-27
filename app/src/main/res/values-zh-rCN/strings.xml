@@ -1623,6 +1623,7 @@
     <string name="transform_rotate_180">旋转 180°</string>
     <string name="transform_rotate">旋转</string>
     <string name="transform_nudge">微调</string>
+    <string name="transform_snap">吸附</string>
     <string name="crop_apply">应用裁剪</string>
     <string name="liquify_push">推拉</string>
     <string name="liquify_bloat">膨胀</string>
