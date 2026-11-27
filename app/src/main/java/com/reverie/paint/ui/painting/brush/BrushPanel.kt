@@ -776,7 +776,6 @@ fun BrushPanel(
                                                         Spacer(Modifier.width(6.dp))
                                                     }
                                                     val catDisplayName = brushCategoryDisplayName(cat)
-                                                    val isCurrentPresetCat = cat == activePresetCategory && activePresetCategory.isNotBlank() && activePresetCategory != "全部"
                                                     Text(
                                                         text = catDisplayName,
                                                         color = if (sel) Morandi.accent else Morandi.subText,
@@ -785,15 +784,6 @@ fun BrushPanel(
                                                         overflow = TextOverflow.Ellipsis,
                                                         modifier = Modifier.weight(1f, fill = false)
                                                     )
-                                                    if (isCurrentPresetCat) {
-                                                        Spacer(Modifier.width(4.dp))
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(5.dp)
-                                                                .clip(CircleShape)
-                                                                .background(Morandi.accent)
-                                                        )
-                                                    }
                                                 }
                                             }
                                         }
@@ -954,122 +944,92 @@ fun BrushPanel(
                                                 fontWeight = FontWeight.Bold,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f, fill = false)
+                                                modifier = Modifier.weight(1f)
                                             )
-                                            Spacer(Modifier.width(2.dp))
-                                            IconButton(
-                                                onClick = { categoryMenuTarget = selectedCategory },
-                                                modifier = Modifier.size(26.dp)
+                                            Spacer(Modifier.width(8.dp))
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
                                             ) {
-                                                Icon(
-                                                    painter = painterResource(R.drawable.ic_dots_vertical),
-                                                    contentDescription = stringResource(R.string.brush_group_more_options),
-                                                    tint = Morandi.icon,
-                                                    modifier = Modifier.size(15.dp)
-                                                )
-                                            }
-                                            Spacer(Modifier.weight(1f))
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(28.dp)
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(Morandi.panelHi.copy(alpha = 0.5f))
-                                                    .clickable { isSearchActive = true },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    painter = painterResource(R.drawable.ic_search),
+                                                BrushHeaderActionButton(
+                                                    iconRes = R.drawable.ic_search,
                                                     contentDescription = stringResource(R.string.brush_search_hint),
-                                                    tint = Morandi.icon,
-                                                    modifier = Modifier.size(15.dp)
+                                                    highlighted = false,
+                                                    onClick = { isSearchActive = true },
                                                 )
-                                            }
-                                            Spacer(Modifier.width(6.dp))
-                                            var showViewModeMenu by remember { mutableStateOf(false) }
-                                            val modeIconRes = when (vm.brushPanelViewMode) {
-                                                BrushPanelViewMode.STROKE_ICON_NAME -> R.drawable.ic_brush_quick
-                                                BrushPanelViewMode.STROKE_NAME -> R.drawable.ic_shape_stroke
-                                                BrushPanelViewMode.TWO_COLUMN -> R.drawable.ic_columns_2
-                                                BrushPanelViewMode.LIST -> R.drawable.ic_menu
-                                                BrushPanelViewMode.GRID -> R.drawable.ic_grid
-                                            }
-                                            Box {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(28.dp)
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(
-                                                            if (showViewModeMenu || vm.brushPanelViewMode != BrushPanelViewMode.LIST) {
-                                                                Morandi.accent.copy(alpha = 0.14f)
-                                                            } else {
-                                                                Morandi.panelHi.copy(alpha = 0.5f)
-                                                            }
-                                                        )
-                                                        .clickable { showViewModeMenu = true },
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        painter = painterResource(modeIconRes),
+                                                var showViewModeMenu by remember { mutableStateOf(false) }
+                                                val modeIconRes = when (vm.brushPanelViewMode) {
+                                                    BrushPanelViewMode.STROKE_ICON_NAME -> R.drawable.ic_brush_quick
+                                                    BrushPanelViewMode.STROKE_NAME -> R.drawable.ic_shape_stroke
+                                                    BrushPanelViewMode.TWO_COLUMN -> R.drawable.ic_columns_2
+                                                    BrushPanelViewMode.LIST -> R.drawable.ic_menu
+                                                    BrushPanelViewMode.GRID -> R.drawable.ic_grid
+                                                }
+                                                Box {
+                                                    BrushHeaderActionButton(
+                                                        iconRes = modeIconRes,
                                                         contentDescription = stringResource(R.string.brush_view_mode_desc),
-                                                        tint = if (showViewModeMenu || vm.brushPanelViewMode != BrushPanelViewMode.LIST) {
-                                                            Morandi.accent
-                                                        } else {
-                                                            Morandi.icon
-                                                        },
-                                                        modifier = Modifier.size(15.dp)
+                                                        highlighted = showViewModeMenu,
+                                                        onClick = { showViewModeMenu = true },
                                                     )
+                                                    ReDropdownMenu(
+                                                        expanded = showViewModeMenu,
+                                                        onDismissRequest = { showViewModeMenu = false },
+                                                        modifier = Modifier.width(196.dp),
+                                                    ) {
+                                                        ReDropdownMenuItem(
+                                                            text = stringResource(R.string.brush_view_mode_stroke_icon),
+                                                            icon = R.drawable.ic_brush_quick,
+                                                            selected = vm.brushPanelViewMode == BrushPanelViewMode.STROKE_ICON_NAME,
+                                                            onClick = {
+                                                                showViewModeMenu = false
+                                                                vm.updateBrushPanelViewMode(BrushPanelViewMode.STROKE_ICON_NAME)
+                                                            },
+                                                        )
+                                                        ReDropdownMenuItem(
+                                                            text = stringResource(R.string.brush_view_mode_stroke_only),
+                                                            icon = R.drawable.ic_shape_stroke,
+                                                            selected = vm.brushPanelViewMode == BrushPanelViewMode.STROKE_NAME,
+                                                            onClick = {
+                                                                showViewModeMenu = false
+                                                                vm.updateBrushPanelViewMode(BrushPanelViewMode.STROKE_NAME)
+                                                            },
+                                                        )
+                                                        ReDropdownMenuItem(
+                                                            text = stringResource(R.string.brush_view_mode_two_col),
+                                                            icon = R.drawable.ic_columns_2,
+                                                            selected = vm.brushPanelViewMode == BrushPanelViewMode.TWO_COLUMN,
+                                                            onClick = {
+                                                                showViewModeMenu = false
+                                                                vm.updateBrushPanelViewMode(BrushPanelViewMode.TWO_COLUMN)
+                                                            },
+                                                        )
+                                                        ReDropdownMenuItem(
+                                                            text = stringResource(R.string.brush_view_mode_list),
+                                                            icon = R.drawable.ic_menu,
+                                                            selected = vm.brushPanelViewMode == BrushPanelViewMode.LIST,
+                                                            onClick = {
+                                                                showViewModeMenu = false
+                                                                vm.updateBrushPanelViewMode(BrushPanelViewMode.LIST)
+                                                            },
+                                                        )
+                                                        ReDropdownMenuItem(
+                                                            text = stringResource(R.string.brush_view_mode_grid),
+                                                            icon = R.drawable.ic_grid,
+                                                            selected = vm.brushPanelViewMode == BrushPanelViewMode.GRID,
+                                                            onClick = {
+                                                                showViewModeMenu = false
+                                                                vm.updateBrushPanelViewMode(BrushPanelViewMode.GRID)
+                                                            },
+                                                        )
+                                                    }
                                                 }
-                                                ReDropdownMenu(
-                                                    expanded = showViewModeMenu,
-                                                    onDismissRequest = { showViewModeMenu = false },
-                                                    modifier = Modifier.width(196.dp),
-                                                ) {
-                                                    ReDropdownMenuItem(
-                                                        text = stringResource(R.string.brush_view_mode_stroke_icon),
-                                                        icon = R.drawable.ic_brush_quick,
-                                                        selected = vm.brushPanelViewMode == BrushPanelViewMode.STROKE_ICON_NAME,
-                                                        onClick = {
-                                                            showViewModeMenu = false
-                                                            vm.updateBrushPanelViewMode(BrushPanelViewMode.STROKE_ICON_NAME)
-                                                        },
-                                                    )
-                                                    ReDropdownMenuItem(
-                                                        text = stringResource(R.string.brush_view_mode_stroke_only),
-                                                        icon = R.drawable.ic_shape_stroke,
-                                                        selected = vm.brushPanelViewMode == BrushPanelViewMode.STROKE_NAME,
-                                                        onClick = {
-                                                            showViewModeMenu = false
-                                                            vm.updateBrushPanelViewMode(BrushPanelViewMode.STROKE_NAME)
-                                                        },
-                                                    )
-                                                    ReDropdownMenuItem(
-                                                        text = stringResource(R.string.brush_view_mode_two_col),
-                                                        icon = R.drawable.ic_columns_2,
-                                                        selected = vm.brushPanelViewMode == BrushPanelViewMode.TWO_COLUMN,
-                                                        onClick = {
-                                                            showViewModeMenu = false
-                                                            vm.updateBrushPanelViewMode(BrushPanelViewMode.TWO_COLUMN)
-                                                        },
-                                                    )
-                                                    ReDropdownMenuItem(
-                                                        text = stringResource(R.string.brush_view_mode_list),
-                                                        icon = R.drawable.ic_menu,
-                                                        selected = vm.brushPanelViewMode == BrushPanelViewMode.LIST,
-                                                        onClick = {
-                                                            showViewModeMenu = false
-                                                            vm.updateBrushPanelViewMode(BrushPanelViewMode.LIST)
-                                                        },
-                                                    )
-                                                    ReDropdownMenuItem(
-                                                        text = stringResource(R.string.brush_view_mode_grid),
-                                                        icon = R.drawable.ic_grid,
-                                                        selected = vm.brushPanelViewMode == BrushPanelViewMode.GRID,
-                                                        onClick = {
-                                                            showViewModeMenu = false
-                                                            vm.updateBrushPanelViewMode(BrushPanelViewMode.GRID)
-                                                        },
-                                                    )
-                                                }
+                                                BrushHeaderActionButton(
+                                                    iconRes = R.drawable.ic_dots_vertical,
+                                                    contentDescription = stringResource(R.string.brush_group_more_options),
+                                                    highlighted = categoryMenuTarget == selectedCategory,
+                                                    onClick = { categoryMenuTarget = selectedCategory },
+                                                )
                                             }
                                         }
                                     }
@@ -2627,6 +2587,33 @@ private fun PresetListRow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BrushHeaderActionButton(
+    iconRes: Int,
+    contentDescription: String,
+    highlighted: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(
+                if (highlighted) Morandi.accent.copy(alpha = 0.16f)
+                else Morandi.panelHi.copy(alpha = 0.5f),
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = contentDescription,
+            tint = if (highlighted) Morandi.accent else Morandi.icon,
+            modifier = Modifier.size(15.dp),
+        )
     }
 }
 
