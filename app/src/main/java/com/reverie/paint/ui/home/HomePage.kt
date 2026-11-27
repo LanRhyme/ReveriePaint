@@ -87,6 +87,8 @@ import com.reverie.paint.ui.dialog.SponsorPromptDialog
 import com.reverie.paint.ui.dialog.SponsorsDialog
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Project
+import com.reverie.paint.model.ProjectRenameError
+import com.reverie.paint.model.ProjectRenameResult
 import com.reverie.paint.model.UiAnimationSpeed
 import com.reverie.paint.ui.theme.AppColors
 import com.reverie.paint.ui.theme.Motion
@@ -289,12 +291,44 @@ fun HomePage(vm: PaintViewModel) {
 
     if (showRenameDialog && targetRenameProject != null) {
         val renameTarget = targetRenameProject!!
+        val renameValidationError = remember(renameTarget, newProjectName, vm.projects) {
+            vm.validateProjectRename(renameTarget, newProjectName)
+        }
+        val renameErrorText = when (renameValidationError) {
+            ProjectRenameError.ALREADY_EXISTS -> stringResource(
+                if (renameTarget.isFolder) R.string.home_rename_error_folder_exists
+                else R.string.home_rename_error_project_exists,
+            )
+            ProjectRenameError.INVALID_CHARS -> stringResource(R.string.home_rename_error_invalid_chars)
+            else -> null
+        }
         RenameProjectDialog(
             colors = colors,
             project = renameTarget,
             name = newProjectName,
             onNameChange = { newProjectName = it },
-            onRename = { newName -> vm.renameProject(renameTarget, newName) },
+            errorText = renameErrorText,
+            confirmEnabled = renameValidationError == null && newProjectName.isNotBlank(),
+            onRename = { newName ->
+                when (val result = vm.renameProject(renameTarget, newName)) {
+                    is ProjectRenameResult.Success,
+                    ProjectRenameResult.Unchanged -> {
+                        showRenameDialog = false
+                        targetRenameProject = null
+                    }
+                    is ProjectRenameResult.Failure -> {
+                        val msg = when (result.error) {
+                            ProjectRenameError.ALREADY_EXISTS -> context.getString(
+                                if (renameTarget.isFolder) R.string.home_rename_error_folder_exists
+                                else R.string.home_rename_error_project_exists,
+                            )
+                            ProjectRenameError.INVALID_CHARS -> context.getString(R.string.home_rename_error_invalid_chars)
+                            else -> context.getString(R.string.home_rename_error_failed)
+                        }
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
             onDismiss = {
                 showRenameDialog = false
                 targetRenameProject = null

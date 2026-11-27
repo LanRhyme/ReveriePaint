@@ -1040,6 +1040,10 @@
     <string name="home_dialog_folder_name_hint">Folder Name</string>
     <string name="home_dialog_rename_folder_title">Rename Folder</string>
     <string name="home_dialog_rename_project_title">Rename Artwork</string>
+    <string name="home_rename_error_project_exists">An artwork with this name already exists</string>
+    <string name="home_rename_error_folder_exists">A folder with this name already exists</string>
+    <string name="home_rename_error_invalid_chars">Name cannot contain / or \ or reserved names</string>
+    <string name="home_rename_error_failed">Rename failed, please try again</string>
     <string name="home_dialog_move_title">Move to Folder</string>
     <string name="home_dialog_move_to_root">Move to Root Gallery</string>
     <string name="home_toast_moved_to_root">Moved to root gallery</string>

@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.reverie.paint.core.*
 import com.reverie.paint.model.MemoryPressureLevel
+import com.reverie.paint.model.ProjectRenameError
 import com.reverie.paint.model.RuntimeMemoryPolicy
 import com.reverie.paint.model.RuntimeMemorySnapshot
 import com.reverie.paint.ui.components.ReSwitch
@@ -199,6 +200,14 @@ internal fun CanvasTabPage(
 
     // Custom Styled Dialog: Save As
     if (showSaveAsDialog) {
+        val saveAsError = remember(saveAsName, vm.docName, vm.currentProjectFile) {
+            vm.validateSaveAsName(saveAsName)
+        }
+        val saveAsErrorText = when (saveAsError) {
+            ProjectRenameError.ALREADY_EXISTS -> stringResource(R.string.home_rename_error_project_exists)
+            ProjectRenameError.INVALID_CHARS -> stringResource(R.string.home_rename_error_invalid_chars)
+            else -> null
+        }
         androidx.compose.ui.window.Dialog(onDismissRequest = { showSaveAsDialog = false }) {
             Box(
                 modifier = Modifier
@@ -219,18 +228,30 @@ internal fun CanvasTabPage(
                         value = saveAsName,
                         onValueChange = { saveAsName = it },
                         singleLine = true,
+                        isError = saveAsErrorText != null,
                         placeholder = { Text(stringResource(R.string.canvas_dialog_save_as_placeholder), color = Morandi.subText) },
                         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Morandi.text,
                             unfocusedTextColor = Morandi.text,
                             focusedBorderColor = Morandi.accent,
                             unfocusedBorderColor = Morandi.border,
+                            errorBorderColor = Morandi.error,
                             focusedContainerColor = Morandi.panelHi,
                             unfocusedContainerColor = Morandi.panelHi,
-                            cursorColor = Morandi.accent
+                            errorContainerColor = Morandi.panelHi,
+                            cursorColor = Morandi.accent,
+                            errorCursorColor = Morandi.error,
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (saveAsErrorText != null) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = saveAsErrorText,
+                            color = Morandi.error,
+                            fontSize = 12.sp,
+                        )
+                    }
                     Spacer(Modifier.height(18.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -241,15 +262,16 @@ internal fun CanvasTabPage(
                         ReTextButton(
                             stringResource(R.string.common_save),
                             onClick = {
-                            val name = saveAsName.trim()
-                            showSaveAsDialog = false
-                            onClose()
-                            if (name.isNotBlank()) {
-                                vm.saveProject(name) {
-                                    android.widget.Toast.makeText(context, resources.getString(R.string.canvas_toast_saved_as, name), android.widget.Toast.LENGTH_SHORT).show()
+                                val name = saveAsName.trim()
+                                if (saveAsError == null && name.isNotBlank()) {
+                                    showSaveAsDialog = false
+                                    onClose()
+                                    vm.saveProject(name) {
+                                        android.widget.Toast.makeText(context, resources.getString(R.string.canvas_toast_saved_as, name), android.widget.Toast.LENGTH_SHORT).show()
+                                    }
                                 }
-                            }
-                        },
+                            },
+                            enabled = saveAsError == null && saveAsName.isNotBlank(),
                             textColor = Morandi.accent,
                             fontWeight = FontWeight.Bold,
                         )

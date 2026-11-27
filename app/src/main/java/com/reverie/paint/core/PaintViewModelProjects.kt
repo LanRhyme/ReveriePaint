@@ -21,6 +21,13 @@ import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.AutoSaveSnapshot
 import com.reverie.paint.model.FrontBufferQuiet
+import com.reverie.paint.model.ProjectRenameError
+import com.reverie.paint.model.ProjectRenameResult
+import com.reverie.paint.model.checkProjectRenameError
+import com.reverie.paint.model.hasArtworkNameConflictInDir
+import com.reverie.paint.model.renameProjectFileSafely
+import com.reverie.paint.model.resolveUniqueMoveDestination
+import com.reverie.paint.model.validateProjectName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -1130,6 +1137,20 @@ internal fun generateDefaultStackName(
     }
 }
 
+private fun PaintViewModel.moveSingleProjectFile(srcFile: File, destDir: File) {
+    if (!srcFile.exists()) return
+    val destFile = resolveUniqueMoveDestination(srcFile, destDir) ?: return
+    if (destFile.exists()) return
+    if (srcFile.renameTo(destFile)) {
+        referenceStore.move(srcFile, destFile)
+        renameTimelapseData(oldFile = srcFile, newFile = destFile)
+        projectMetaCache.remove(srcFile.absolutePath)
+        projectMetaCache.remove(destFile.absolutePath)
+        dropProjectThumbCache(srcFile.nameWithoutExtension)
+        dropProjectThumbCache(destFile.nameWithoutExtension)
+    }
+}
+
 internal fun PaintViewModel.moveProjectToFolder(
     p: com.reverie.paint.model.Project,
     targetFolderName: String?,
@@ -1139,11 +1160,7 @@ internal fun PaintViewModel.moveProjectToFolder(
     val root = projectDir()
     val destDir = if (targetFolderName.isNullOrBlank()) root else File(root, targetFolderName)
     if (!destDir.exists()) destDir.mkdirs()
-    val destFile = File(destDir, srcFile.name)
-    if (srcFile.renameTo(destFile)) {
-        referenceStore.move(srcFile, destFile)
-        renameTimelapseData(oldFile = srcFile, newFile = destFile)
-    }
+    moveSingleProjectFile(srcFile, destDir)
     refreshProjects()
 }
 
@@ -1156,14 +1173,7 @@ internal fun PaintViewModel.moveProjectsToFolder(
     if (!destDir.exists()) destDir.mkdirs()
     projects.forEach { p ->
         if (!p.isFolder) {
-            val srcFile = File(p.filePath)
-            if (srcFile.exists()) {
-                val destFile = File(destDir, srcFile.name)
-                if (srcFile.renameTo(destFile)) {
-                    referenceStore.move(srcFile, destFile)
-                    renameTimelapseData(oldFile = srcFile, newFile = destFile)
-                }
-            }
+            moveSingleProjectFile(File(p.filePath), destDir)
         }
     }
     refreshProjects()
@@ -1242,31 +1252,116 @@ internal fun PaintViewModel.deleteProject(p: com.reverie.paint.model.Project) {
     refreshProjects()
 }
 
+private fun PaintViewModel.renameConflictContext(
+    p: com.reverie.paint.model.Project,
+    file: File,
+): Pair<List<File>, Set<String>> {
+    if (p.isFolder) return emptyList<File>() to emptySet()
+    val autoDir = autoSaveDir()
+    val rootDir = projectDir()
+    val parentCanonical = file.parentFile?.canonicalFile
+    val extraDirs = when {
+        parentCanonical == autoDir.canonicalFile -> {
+            val galleryDir = p.masterFilePath
+                .takeIf { it.isNotBlank() }
+                ?.let { File(it).parentFile }
+                ?.takeIf { it.exists() && it.isDirectory }
+                ?: currentFolder?.let { File(it.filePath) }?.takeIf { it.exists() && it.isDirectory }
+                ?: rootDir
+            listOf(galleryDir)
+        }
+        parentCanonical == rootDir.canonicalFile -> listOf(autoDir)
+        else -> emptyList()
+    }
+    val extraNames = projects
+        .asSequence()
+        .filter { !it.isFolder && it.isAutoSaved && it.filePath != p.filePath }
+        .map { it.name }
+        .toSet()
+    return extraDirs to extraNames
+}
+
+internal fun PaintViewModel.validateProjectRename(
+    p: com.reverie.paint.model.Project,
+    newName: String,
+): ProjectRenameError? {
+    val file = File(p.filePath)
+    val (extraDirs, extraNames) = renameConflictContext(p, file)
+    return checkProjectRenameError(
+        source = file,
+        isFolder = p.isFolder,
+        newName = newName,
+        extraConflictDirs = extraDirs,
+        extraConflictNames = extraNames,
+    )
+}
+
+internal fun PaintViewModel.validateSaveAsName(newName: String): ProjectRenameError? {
+    validateProjectName(newName)?.let { return it }
+    val trimmed = newName.trim()
+    val currentFile = currentProjectFile
+        ?.let { File(it) }
+        ?.takeIf { it.parentFile?.exists() == true && !it.name.contains(".autosave") }
+    val targetDir = currentFile?.parentFile
+        ?: currentFolder?.let { File(it.filePath) }?.takeIf { it.exists() && it.isDirectory }
+        ?: projectDir()
+    val finalFile = File(targetDir, "$trimmed.revp")
+    if (currentFile != null && finalFile.absolutePath == currentFile.absolutePath) {
+        return null
+    }
+    if (finalFile.exists() || hasArtworkNameConflictInDir(targetDir, trimmed, ignoreFile = currentFile)) {
+        return ProjectRenameError.ALREADY_EXISTS
+    }
+    return null
+}
+
 internal fun PaintViewModel.renameProject(
     p: com.reverie.paint.model.Project,
     newName: String,
-) {
+): ProjectRenameResult {
     val file = File(p.filePath)
-    if (file.exists()) {
-        val target =
-            if (p.isFolder) {
-                File(file.parentFile, newName.trim())
-            } else {
-                File(file.parentFile, "${newName.trim()}.${file.extension}")
+    val (extraDirs, extraNames) = renameConflictContext(p, file)
+    val result = renameProjectFileSafely(
+        source = file,
+        isFolder = p.isFolder,
+        newName = newName,
+        extraConflictDirs = extraDirs,
+        extraConflictNames = extraNames,
+    )
+    if (result is ProjectRenameResult.Success) {
+        val oldFile = result.oldFile
+        val target = result.newFile
+        referenceStore.move(oldFile, target)
+        projectMetaCache.remove(oldFile.absolutePath)
+        projectMetaCache.remove(target.absolutePath)
+        if (p.isFolder) {
+            renameTimelapseFolder(p.name, target.name)
+            if (currentFolder?.filePath == oldFile.absolutePath) {
+                currentFolder = currentFolder?.copy(
+                    name = target.name,
+                    filePath = target.absolutePath,
+                    folderPath = target.absolutePath,
+                )
             }
-        if (file.renameTo(target)) {
-            referenceStore.move(file, target)
-            if (p.isFolder) {
-                renameTimelapseFolder(p.name, newName.trim())
-            } else {
-                renameTimelapseData(oldFile = file, newFile = target)
-                // 缩略图缓存按工程名索引: 旧名的缓存留着不仅是垃圾, 改回旧名时会命中
-                // 改名前的旧预览 (缓存并没随 .revp 变过)。
-                dropProjectThumbCache(file.nameWithoutExtension)
+        } else {
+            renameTimelapseData(oldFile = oldFile, newFile = target)
+            // 缩略图缓存按工程名索引: 旧名与目标名缓存都清掉, 避免改名后命中历史同名预览。
+            dropProjectThumbCache(oldFile.nameWithoutExtension)
+            dropProjectThumbCache(target.nameWithoutExtension)
+            oldFile.parentFile?.let { parentDir ->
+                val coverFile = File(parentDir, ".cover")
+                if (coverFile.isFile) {
+                    runCatching {
+                        if (coverFile.readText().trim() == oldFile.name) {
+                            coverFile.writeText(target.name)
+                        }
+                    }
+                }
             }
         }
+        refreshProjects()
     }
-    refreshProjects()
+    return result
 }
 
 internal fun PaintViewModel.duplicateProject(p: com.reverie.paint.model.Project) {

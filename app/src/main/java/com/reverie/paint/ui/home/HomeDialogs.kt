@@ -134,6 +134,8 @@ internal fun RenameProjectDialog(
     onNameChange: (String) -> Unit,
     onRename: (String) -> Unit,
     onDismiss: () -> Unit,
+    errorText: String? = null,
+    confirmEnabled: Boolean = name.isNotBlank() && errorText == null,
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -159,17 +161,29 @@ internal fun RenameProjectDialog(
                     value = name,
                     onValueChange = onNameChange,
                     singleLine = true,
+                    isError = errorText != null,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = colors.text,
                         unfocusedTextColor = colors.text,
                         focusedBorderColor = colors.accent,
                         unfocusedBorderColor = Color.Transparent,
+                        errorBorderColor = colors.error,
                         focusedContainerColor = colors.panelHi,
                         unfocusedContainerColor = colors.panelHi,
-                        cursorColor = colors.accent
+                        errorContainerColor = colors.panelHi,
+                        cursorColor = colors.accent,
+                        errorCursorColor = colors.error,
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (errorText != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = errorText,
+                        color = colors.error,
+                        fontSize = 12.sp,
+                    )
+                }
                 Spacer(Modifier.height(20.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -180,9 +194,9 @@ internal fun RenameProjectDialog(
                     ReTextButton(
                         stringResource(R.string.common_confirm),
                         onClick = {
-                        if (name.isNotBlank()) onRename(name.trim())
-                        onDismiss()
-                    },
+                            if (confirmEnabled && name.isNotBlank()) onRename(name.trim())
+                        },
+                        enabled = confirmEnabled,
                         textColor = colors.accent,
                         fontWeight = FontWeight.Bold,
                     )
