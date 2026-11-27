@@ -7,7 +7,7 @@
 ### Features
 - **Custom Toolbar Icons**: Customize tool button icons using text, emojis, built-in icons, or gallery images with optional monochrome theme tinting
 - **Collab Room Save Permissions & Live Settings**: Lock rooms to allow saving only each participant's own, shared, and background layers upon exit while blocking in-room full-canvas saves and exports (including for the host), and let hosts update visibility, title, password, approval, and capacity in real time
-- **Host Collab from Current or Existing Canvas**: Start a collaborative room directly from your open canvas or any saved gallery artwork, and reach the collab lobby straight from the canvas panel
+- **Host Collab from Existing Canvas**: Start a collaborative room directly from any saved gallery artwork via the room creation dialog or artwork menu
 - **Collab Quick Interactions & Navigation**: Added quick chat phrases, canvas pin markers, one-tap jump to member cursors, and confirmation prompts before destructive room actions
 - **Transform Nudge Acceleration & Snapping**: Hold directional nudge keys for smooth acceleration, and toggle magnetic, grid, or constrained angle snapping during transforms
 - **Dynamic Color & Bilingual Changelog**: Enabled Material You dynamic color theming by default on Android 12+, added an in-app changelog viewer following your current language, and unified English fallback localization

@@ -4445,6 +4445,4 @@
     <string name="collab_canvas_untitled">無題のキャンバス</string>
     <string name="collab_project_menu_host">この作品でコラボを開始</string>
     <string name="collab_existing_project_meta">%1$d × %2$d px · %3$d レイヤー</string>
-    <string name="collab_canvas_entry_desc">現在のキャンバスでルームを作成、またはコードで参加</string>
-    <string name="collab_canvas_active_desc">コラボ中 · ルーム %1$s · %2$d 人参加中</string>
 </resources>

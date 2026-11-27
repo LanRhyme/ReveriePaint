@@ -4440,6 +4440,4 @@
     <string name="collab_canvas_untitled">未命名畫布</string>
     <string name="collab_project_menu_host">從此畫布發起茶繪</string>
     <string name="collab_existing_project_meta">%1$d × %2$d px · %3$d 個圖層</string>
-    <string name="collab_canvas_entry_desc">使用目前畫布開啟茶繪房間，或輸入房間碼加入好友</string>
-    <string name="collab_canvas_active_desc">正在連線 · 房間 %1$s · %2$d 人在線</string>
 </resources>

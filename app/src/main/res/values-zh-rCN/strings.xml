@@ -4476,6 +4476,4 @@
     <string name="collab_canvas_untitled">未命名画布</string>
     <string name="collab_project_menu_host">从此画布发起茶绘</string>
     <string name="collab_existing_project_meta">%1$d × %2$d px · %3$d 个图层</string>
-    <string name="collab_canvas_entry_desc">使用当前画布开启茶绘房间，或输入房间码加入好友</string>
-    <string name="collab_canvas_active_desc">正在联机 · 房间 %1$s · %2$d 人在线</string>
 </resources>

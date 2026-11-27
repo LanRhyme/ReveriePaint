@@ -4440,6 +4440,4 @@
     <string name="collab_canvas_untitled">没起名的小画纸</string>
     <string name="collab_project_menu_host">拎着这张画开茶绘猫窝</string>
     <string name="collab_existing_project_meta">%1$d × %2$d px · %3$d 个图层</string>
-    <string name="collab_canvas_entry_desc">用眼前这张画开个猫窝，或者对暗号钻进朋友的窝喵</string>
-    <string name="collab_canvas_active_desc">正在窝里一起涂 · %1$s · %2$d 只猫在线</string>
 </resources>
