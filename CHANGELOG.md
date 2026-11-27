@@ -2,6 +2,25 @@
 
 [English](CHANGELOG.md) | [简体中文](CHANGELOG_ZH.md)
 
+## [v1.11.2] - 2026-11-27
+
+### Features
+- **Custom Toolbar Icons**: Customize tool button icons using text, emojis, built-in icons, or gallery images with optional monochrome theme tinting
+- **Collab Room Save Permissions & Live Settings**: Lock rooms to allow saving only each participant's own, shared, and background layers upon exit while blocking in-room full-canvas saves and exports (including for the host), and let hosts update visibility, title, password, approval, and capacity in real time
+- **Host Collab from Current or Existing Canvas**: Start a collaborative room directly from your open canvas or any saved gallery artwork, and reach the collab lobby straight from the canvas panel
+- **Collab Quick Interactions & Navigation**: Added quick chat phrases, canvas pin markers, one-tap jump to member cursors, and confirmation prompts before destructive room actions
+- **Transform Nudge Acceleration & Snapping**: Hold directional nudge keys for smooth acceleration, and toggle magnetic, grid, or constrained angle snapping during transforms
+- **Dynamic Color & Bilingual Changelog**: Enabled Material You dynamic color theming by default on Android 12+, added an in-app changelog viewer following your current language, and unified English fallback localization
+
+### Bug Fixes
+- **Collab Relay Auto-Fallback & Reconnect Recovery**: Automatically switches to relay mode when direct connections stall, adds a manual relay switch and non-blocking canvas sync banner, and preserves participant identity after drops or background switches for one-tap reconnection
+- **Drawing Guides Corner Fix & Grid Transform**: Fixed accidental corner kinks when starting strokes near drawing guides, and added position and angle adjustments for 2D and isometric grids
+- **Safe Gallery Rename & Small-Canvas Recording**: Prevented gallery renames from silently overwriting existing artworks with the same name, and eliminated brief recording hitches when drawing on small canvases
+
+### Improvements
+- **Collab Dialogs & Brush Panel Polish**: Unified collaborative painting dialog layouts, added the "Own Layers Only" scope indicator, and refined the Brush Panel header buttons and list layout
+- **Extended Localization Completion**: Completed Traditional Chinese, Japanese, and Cat language translations for custom toolbar icons, changelog, transform snapping, drawing guides, and collaborative painting updates
+
 ## [v1.11.1] - 2026-11-26
 
 > **Warning**: Due to a major upgrade to the multi-user collab transport architecture, this release is incompatible with v1.11.0, all participants should update to v1.11.1 before joining the same room
