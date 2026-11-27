@@ -1055,20 +1055,20 @@ internal fun CollabRoomSheet(
                             fontSize = 11.sp,
                             modifier = Modifier.weight(1f),
                         )
+                        val normalizedCode = CollabTopologyPolicy.normalizeRoomCode(collab.roomCode)
+                        val pwdSuffix = if (collab.roomHasPassword) {
+                            stringResource(R.string.collab_invite_password_suffix)
+                        } else ""
+                        val cleanTitle = collab.roomTitle.trim()
+                        val inviteText = if (cleanTitle.isNotEmpty()) {
+                            stringResource(R.string.collab_invite_with_title, cleanTitle, normalizedCode, pwdSuffix)
+                        } else {
+                            stringResource(R.string.collab_invite_no_title, normalizedCode, pwdSuffix)
+                        }
                         ReTextButton(
                             text = stringResource(R.string.collab_copy_invite),
                             icon = R.drawable.ic_copy,
                             onClick = {
-                                val normalizedCode = CollabTopologyPolicy.normalizeRoomCode(collab.roomCode)
-                                val pwdSuffix = if (collab.roomHasPassword) {
-                                    context.getString(R.string.collab_invite_password_suffix)
-                                } else ""
-                                val cleanTitle = collab.roomTitle.trim()
-                                val inviteText = if (cleanTitle.isNotEmpty()) {
-                                    context.getString(R.string.collab_invite_with_title, cleanTitle, normalizedCode, pwdSuffix)
-                                } else {
-                                    context.getString(R.string.collab_invite_no_title, normalizedCode, pwdSuffix)
-                                }
                                 val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
                                     as? android.content.ClipboardManager
                                 cm?.setPrimaryClip(

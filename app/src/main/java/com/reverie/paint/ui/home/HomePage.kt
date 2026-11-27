@@ -294,12 +294,15 @@ fun HomePage(vm: PaintViewModel) {
         val renameValidationError = remember(renameTarget, newProjectName, vm.projects) {
             vm.validateProjectRename(renameTarget, newProjectName)
         }
+        val renameExistsMsg = stringResource(
+            if (renameTarget.isFolder) R.string.home_rename_error_folder_exists
+            else R.string.home_rename_error_project_exists,
+        )
+        val renameInvalidCharsMsg = stringResource(R.string.home_rename_error_invalid_chars)
+        val renameFailedMsg = stringResource(R.string.home_rename_error_failed)
         val renameErrorText = when (renameValidationError) {
-            ProjectRenameError.ALREADY_EXISTS -> stringResource(
-                if (renameTarget.isFolder) R.string.home_rename_error_folder_exists
-                else R.string.home_rename_error_project_exists,
-            )
-            ProjectRenameError.INVALID_CHARS -> stringResource(R.string.home_rename_error_invalid_chars)
+            ProjectRenameError.ALREADY_EXISTS -> renameExistsMsg
+            ProjectRenameError.INVALID_CHARS -> renameInvalidCharsMsg
             else -> null
         }
         RenameProjectDialog(
@@ -318,12 +321,9 @@ fun HomePage(vm: PaintViewModel) {
                     }
                     is ProjectRenameResult.Failure -> {
                         val msg = when (result.error) {
-                            ProjectRenameError.ALREADY_EXISTS -> context.getString(
-                                if (renameTarget.isFolder) R.string.home_rename_error_folder_exists
-                                else R.string.home_rename_error_project_exists,
-                            )
-                            ProjectRenameError.INVALID_CHARS -> context.getString(R.string.home_rename_error_invalid_chars)
-                            else -> context.getString(R.string.home_rename_error_failed)
+                            ProjectRenameError.ALREADY_EXISTS -> renameExistsMsg
+                            ProjectRenameError.INVALID_CHARS -> renameInvalidCharsMsg
+                            else -> renameFailedMsg
                         }
                         Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     }
