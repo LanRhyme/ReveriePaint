@@ -161,6 +161,10 @@ internal fun PaintViewModel.touchStart(
         }
     }
 
+    // A new native stroke discards the engine redo branch. Drop its sidecar snapshots too.
+    anim.storyboard.pendingCueHistory =
+        com.reverie.paint.model.StoryboardHistory.discardRedoBranch(anim.storyboard.pendingCueHistory)
+
     // 物理橡皮擦末端 (TOOL_TYPE_ERASER) 或侧键临时擦除: 独立联动橡皮擦工具参数
     val isEraserOverride = toolOverride == "eraser" && currentToolId != "eraser"
     var eraserPresetIdx = -1
@@ -1765,36 +1769,55 @@ internal fun PaintViewModel.undo(
     }) {
         if (ReverieCoreBridge.canUndo()) {
             val beforeCount = ReverieCoreBridge.undoCount()
-            val pendingCueSplit = anim.storyboard.pendingCueSplit
-            val undoingCueSplit = pendingCueSplit != null &&
-                pendingCueSplit.generation == anim.storyboard.generation &&
-                beforeCount == pendingCueSplit.undoCountAfter
-            val pendingCueDelete = anim.storyboard.pendingCueDelete
-            val undoingCueDelete = !undoingCueSplit && pendingCueDelete != null &&
-                pendingCueDelete.generation == anim.storyboard.generation &&
-                beforeCount == pendingCueDelete.undoCountAfter
+            val storyboard = anim.storyboard
+            val history = storyboard.pendingCueHistory
+            val historyIndex = com.reverie.paint.model.StoryboardHistory.undoIndex(
+                entries = history,
+                generation = storyboard.generation,
+                undoCountBefore = beforeCount,
+                label = ReverieCoreBridge.undoText().orEmpty(),
+            )
+            val cueChange = history.getOrNull(historyIndex)?.payload
             Breadcrumbs.record("History", "Undo")
             ReverieCoreBridge.undo()
             didUndo = ReverieCoreBridge.undoCount() != beforeCount
-            if (didUndo && undoingCueSplit) {
-                anim.storyboard.allCues = pendingCueSplit.cuesBefore
-                anim.storyboard.cueTimes = pendingCueSplit.timesBefore
-                ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, pendingCueSplit.assetBefore)
-                ReverieCoreBridge.storeRevAsset(
-                    SrtStoryboard.ASSET + ".frames",
-                    SrtStoryboard.encodeFrameTimes(pendingCueSplit.timesBefore),
-                )
-                pendingCueSplit.undone = true
-            } else if (didUndo && undoingCueDelete) {
-                val times = anim.storyboard.cueTimes.toMutableList()
-                if (pendingCueDelete.allIndex in times.indices) {
-                    times[pendingCueDelete.allIndex] = pendingCueDelete.cueTime
-                    anim.storyboard.cueTimes = times
-                    ReverieCoreBridge.storeRevAsset(
-                        SrtStoryboard.ASSET + ".frames",
-                        SrtStoryboard.encodeFrameTimes(times),
-                    )
-                    pendingCueDelete.undone = true
+            if (didUndo && cueChange != null) {
+                when (cueChange) {
+                    is com.reverie.paint.core.PendingStoryboardCueChange.Delete -> {
+                        val times = storyboard.cueTimes.toMutableList()
+                        if (cueChange.allIndex in times.indices) {
+                            times[cueChange.allIndex] = cueChange.cueTime
+                            storyboard.cueTimes = times
+                            ReverieCoreBridge.storeRevAsset(
+                                SrtStoryboard.ASSET + ".frames",
+                                SrtStoryboard.encodeFrameTimes(times),
+                            )
+                            storyboard.pendingCueHistory =
+                                com.reverie.paint.model.StoryboardHistory.markUndone(
+                                    history,
+                                    historyIndex,
+                                    undone = true,
+                                )
+                        }
+                    }
+                    is com.reverie.paint.core.PendingStoryboardCueChange.Split -> {
+                        storyboard.allCues = cueChange.cuesBefore
+                        storyboard.cueTimes = cueChange.timesBefore
+                        ReverieCoreBridge.storeRevAsset(
+                            SrtStoryboard.ASSET,
+                            SrtStoryboard.encode(cueChange.cuesBefore),
+                        )
+                        ReverieCoreBridge.storeRevAsset(
+                            SrtStoryboard.ASSET + ".frames",
+                            SrtStoryboard.encodeFrameTimes(cueChange.timesBefore),
+                        )
+                        storyboard.pendingCueHistory =
+                            com.reverie.paint.model.StoryboardHistory.markUndone(
+                                history,
+                                historyIndex,
+                                undone = true,
+                            )
+                    }
                 }
             }
             if (didUndo && restoreTransformSel) {
@@ -1891,38 +1914,55 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
     }) {
         if (ReverieCoreBridge.canRedo()) {
             val beforeCount = ReverieCoreBridge.redoCount()
-            val pendingCueSplit = anim.storyboard.pendingCueSplit
-            val redoingCueSplit = pendingCueSplit != null &&
-                pendingCueSplit.generation == anim.storyboard.generation &&
-                pendingCueSplit.undone &&
-                ReverieCoreBridge.undoCount() == pendingCueSplit.undoCountAfter - 1
-            val pendingCueDelete = anim.storyboard.pendingCueDelete
-            val redoingCueDelete = !redoingCueSplit && pendingCueDelete != null &&
-                pendingCueDelete.generation == anim.storyboard.generation &&
-                pendingCueDelete.undone &&
-                ReverieCoreBridge.undoCount() == pendingCueDelete.undoCountAfter - 1
+            val storyboard = anim.storyboard
+            val history = storyboard.pendingCueHistory
+            val historyIndex = com.reverie.paint.model.StoryboardHistory.redoIndex(
+                entries = history,
+                generation = storyboard.generation,
+                undoCountCurrent = ReverieCoreBridge.undoCount(),
+                label = ReverieCoreBridge.redoText().orEmpty(),
+            )
+            val cueChange = history.getOrNull(historyIndex)?.payload
             Breadcrumbs.record("History", "Redo")
             ReverieCoreBridge.redo()
             didRedo = ReverieCoreBridge.redoCount() != beforeCount
-            if (didRedo && redoingCueSplit) {
-                anim.storyboard.allCues = pendingCueSplit.cuesAfter
-                anim.storyboard.cueTimes = pendingCueSplit.timesAfter
-                ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, pendingCueSplit.assetAfter)
-                ReverieCoreBridge.storeRevAsset(
-                    SrtStoryboard.ASSET + ".frames",
-                    SrtStoryboard.encodeFrameTimes(pendingCueSplit.timesAfter),
-                )
-                pendingCueSplit.undone = false
-            } else if (didRedo && redoingCueDelete) {
-                val times = anim.storyboard.cueTimes.toMutableList()
-                if (pendingCueDelete.allIndex in times.indices) {
-                    times[pendingCueDelete.allIndex] = -1
-                    anim.storyboard.cueTimes = times
-                    ReverieCoreBridge.storeRevAsset(
-                        SrtStoryboard.ASSET + ".frames",
-                        SrtStoryboard.encodeFrameTimes(times),
-                    )
-                    pendingCueDelete.undone = false
+            if (didRedo && cueChange != null) {
+                when (cueChange) {
+                    is com.reverie.paint.core.PendingStoryboardCueChange.Delete -> {
+                        val times = storyboard.cueTimes.toMutableList()
+                        if (cueChange.allIndex in times.indices) {
+                            times[cueChange.allIndex] = -1
+                            storyboard.cueTimes = times
+                            ReverieCoreBridge.storeRevAsset(
+                                SrtStoryboard.ASSET + ".frames",
+                                SrtStoryboard.encodeFrameTimes(times),
+                            )
+                            storyboard.pendingCueHistory =
+                                com.reverie.paint.model.StoryboardHistory.markUndone(
+                                    history,
+                                    historyIndex,
+                                    undone = false,
+                                )
+                        }
+                    }
+                    is com.reverie.paint.core.PendingStoryboardCueChange.Split -> {
+                        storyboard.allCues = cueChange.cuesAfter
+                        storyboard.cueTimes = cueChange.timesAfter
+                        ReverieCoreBridge.storeRevAsset(
+                            SrtStoryboard.ASSET,
+                            SrtStoryboard.encode(cueChange.cuesAfter),
+                        )
+                        ReverieCoreBridge.storeRevAsset(
+                            SrtStoryboard.ASSET + ".frames",
+                            SrtStoryboard.encodeFrameTimes(cueChange.timesAfter),
+                        )
+                        storyboard.pendingCueHistory =
+                            com.reverie.paint.model.StoryboardHistory.markUndone(
+                                history,
+                                historyIndex,
+                                undone = false,
+                            )
+                    }
                 }
             }
             if (didRedo && restoreRedoSel) {
@@ -2352,163 +2392,6 @@ internal fun PaintViewModel.cancelTransformPreview(resetCopyOnly: Boolean = true
     }) {
         ReverieCoreBridge.cancelTransformPreview()
     }
-}
-
-internal fun PaintViewModel.copySelectionToClipboard() {
-    if (!hasSelection) {
-        clearSelectionClipboard()
-        editCanvasClipboard()
-        return
-    }
-    copySelectedPixelsToClipboard()
-}
-
-internal fun PaintViewModel.pasteSelectionClipboard() {
-    if (anim.enabled && anim.isPlaying) return
-    val bitmap = selectionClipboard
-    if (bitmap == null || bitmap.isRecycled) {
-        editCanvasClipboard(paste = true)
-        return
-    }
-    val x = selectionClipboardX
-    val y = selectionClipboardY
-    var pasted = false
-    runCore(after = {
-        if (pasted) {
-            notifyLayerChanged(contentChanged = true)
-            showActionToast(R.string.selection_pasted)
-        } else {
-            showActionToast(R.string.canvas_edit_failed, R.drawable.ic_copy)
-        }
-    }) {
-        if (anim.enabled) {
-            val layer = ReverieCoreBridge.currentLayerIndex()
-            if (layer <= 0 || isStoryboardTrackOnRenderThread(layer) ||
-                !ReverieCoreBridge.layerAnimatable(layer) || ReverieCoreBridge.layerLocked(layer)
-            ) {
-                return@runCore
-            }
-            prepareAnimationCel(
-                layer,
-                ReverieCoreBridge.animationCurrentTime(),
-                preserveDrawing = true,
-            )
-        }
-        // stampBitmap writes directly to the paint device, so it does not apply m_selection.
-        // Keep the user's active selection intact while pasting.
-        ReverieCoreBridge.stampBitmap(x, y, bitmap)
-        pasted = true
-    }
-}
-
-internal fun PaintViewModel.cutSelectionToClipboard() {
-    if (!hasSelection) {
-        clearSelectionClipboard()
-        editCanvasClipboard(cut = true)
-        return
-    }
-    copySelectedPixelsToClipboard(cut = true)
-}
-
-private fun PaintViewModel.copySelectedPixelsToClipboard(cut: Boolean = false) {
-    var copied: android.graphics.Bitmap? = null
-    var offsetX = 0
-    var offsetY = 0
-    var cutSucceeded = !cut
-    runCore(render = cut, after = {
-        val bitmap = copied
-        if (bitmap == null || !cutSucceeded) {
-            if (bitmap != null && !bitmap.isRecycled) bitmap.recycle()
-            if (cut && bitmap != null) {
-                showActionToast(R.string.canvas_edit_failed, R.drawable.ic_copy)
-                return@runCore
-            }
-            showActionToast(R.string.toast_selection_empty_pixels, R.drawable.ic_lasso)
-        } else {
-            clearSelectionClipboard()
-            selectionClipboard = bitmap
-            selectionClipboardX = offsetX
-            selectionClipboardY = offsetY
-            selectionClipboardAvailable = true
-            if (cut) {
-                notifyLayerChanged(pixelChanged = true)
-                refreshCanvasEditCapabilities()
-                showActionToast(R.string.selection_cut)
-            } else {
-                showActionToast(R.string.selection_copied)
-            }
-        }
-    }) {
-        val mask = ReverieCoreBridge.selectionMask()
-        if (mask == null || mask.isEmpty()) return@runCore
-        val width = ReverieCoreBridge.docWidth()
-        val height = ReverieCoreBridge.docHeight()
-        if (width <= 0 || height <= 0 || mask.size < width * height) return@runCore
-
-        var minX = width
-        var minY = height
-        var maxX = -1
-        var maxY = -1
-        for (y in 0 until height) {
-            val row = y * width
-            for (x in 0 until width) {
-                if (mask[row + x].toInt() and 0xFF == 0) continue
-                minX = minOf(minX, x)
-                minY = minOf(minY, y)
-                maxX = maxOf(maxX, x)
-                maxY = maxOf(maxY, y)
-            }
-        }
-        if (maxX < minX || maxY < minY) return@runCore
-
-        val full = android.graphics.Bitmap.createBitmap(
-            width,
-            height,
-            android.graphics.Bitmap.Config.ARGB_8888,
-        )
-        if (!ReverieCoreBridge.renderLayerCanvas(ReverieCoreBridge.currentLayerIndex(), full)) {
-            full.recycle()
-            return@runCore
-        }
-        val pixels = IntArray(width * height)
-        full.getPixels(pixels, 0, width, 0, 0, width, height)
-        full.recycle()
-        for (y in minY..maxY) {
-            val row = y * width
-            for (x in minX..maxX) {
-                val pixelIndex = row + x
-                val alpha = mask[pixelIndex].toInt() and 0xFF
-                pixels[pixelIndex] = if (alpha == 0) {
-                    0
-                } else {
-                    val color = pixels[pixelIndex]
-                    val maskedAlpha = (color ushr 24) * alpha / 255
-                    (maskedAlpha shl 24) or (color and 0x00FFFFFF)
-                }
-            }
-        }
-        copied = android.graphics.Bitmap.createBitmap(
-            pixels,
-            minY * width + minX,
-            width,
-            maxX - minX + 1,
-            maxY - minY + 1,
-            android.graphics.Bitmap.Config.ARGB_8888,
-        )
-        offsetX = minX
-        offsetY = minY
-        if (cut) {
-            cutSucceeded = ReverieCoreBridge.copyCanvasToClipboard(cut = true)
-        }
-    }
-}
-
-private fun PaintViewModel.clearSelectionClipboard() {
-    selectionClipboard?.takeUnless { it.isRecycled }?.recycle()
-    selectionClipboard = null
-    selectionClipboardX = 0
-    selectionClipboardY = 0
-    selectionClipboardAvailable = false
 }
 
 internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean) {

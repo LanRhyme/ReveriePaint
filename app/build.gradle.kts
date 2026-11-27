@@ -75,8 +75,6 @@ android {
         if (project.hasProperty("appIdSuffix")) {
             versionNameSuffix = "-test"
         }
-        manifestPlaceholders["appLabel"] =
-            if (project.hasProperty("appIdSuffix")) "@string/app_name_test" else "@string/app_name"
         minSdk = 23
         targetSdk = 33
         versionCode = 72

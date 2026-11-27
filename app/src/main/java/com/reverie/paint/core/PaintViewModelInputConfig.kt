@@ -201,9 +201,10 @@ internal fun PaintViewModel.dispatchGestureAction(
 
 internal fun PaintViewModel.executeCanvasEditAction(action: com.reverie.paint.model.CanvasEditAction) {
     when (action) {
-        com.reverie.paint.model.CanvasEditAction.Clipboard.COPY -> copySelectionToClipboard()
-        com.reverie.paint.model.CanvasEditAction.Clipboard.CUT -> cutSelectionToClipboard()
-        com.reverie.paint.model.CanvasEditAction.Clipboard.PASTE -> pasteSelectionClipboard()
+        is com.reverie.paint.model.CanvasEditAction.Clipboard -> editCanvasClipboard(
+            cut = action == com.reverie.paint.model.CanvasEditAction.Clipboard.CUT,
+            paste = action == com.reverie.paint.model.CanvasEditAction.Clipboard.PASTE,
+        )
         is com.reverie.paint.model.CanvasEditAction.Shortcut -> executeQuickAction(action.action)
     }
 }

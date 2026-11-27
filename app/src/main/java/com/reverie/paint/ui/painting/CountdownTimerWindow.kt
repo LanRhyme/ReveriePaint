@@ -9,8 +9,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.hoverable
@@ -59,7 +57,11 @@ import com.reverie.paint.core.persistCountdownWindowState
 import com.reverie.paint.core.resetCountdown
 import com.reverie.paint.core.resumeCountdown
 import com.reverie.paint.core.startCountdown
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.ReIconButton
+import com.reverie.paint.ui.components.evadablePanelContent
+import com.reverie.paint.ui.components.evadablePanelSurface
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
 
@@ -85,6 +87,7 @@ internal fun CountdownTimerWindow(
             .zIndex(79f)
             .offset { IntOffset(x.roundToInt().coerceAtLeast(0), y.roundToInt().coerceAtLeast(0)) }
             .width(panelWidth)
+            .reportUiSlot(vm, UiPanelSlot.COUNTDOWN_TIMER_WINDOW)
             .hoverable(interactionSource)
             .animateContentSize(tween(180))
             .onSizeChanged { size ->
@@ -92,16 +95,28 @@ internal fun CountdownTimerWindow(
                 vm.countdownWindowHeight = size.height.toFloat()
                 val maxX = (vm.floatingHostWidthPx - size.width).coerceAtLeast(0f)
                 val maxY = (vm.floatingHostHeightPx - size.height).coerceAtLeast(0f)
+                var wasClamped = false
                 if (vm.countdownWindowX >= 0f) {
-                    vm.countdownWindowX = vm.countdownWindowX.coerceIn(0f, maxX)
+                    val nextX = vm.countdownWindowX.coerceIn(0f, maxX)
+                    wasClamped = wasClamped || nextX != vm.countdownWindowX
+                    vm.countdownWindowX = nextX
                 }
                 if (vm.countdownWindowY >= 0f) {
-                    vm.countdownWindowY = vm.countdownWindowY.coerceIn(0f, maxY)
+                    val nextY = vm.countdownWindowY.coerceIn(0f, maxY)
+                    wasClamped = wasClamped || nextY != vm.countdownWindowY
+                    vm.countdownWindowY = nextY
                 }
+                if (wasClamped) vm.persistCountdownWindowState()
             }
             .clip(shape)
-            .background(Morandi.panel.copy(alpha = opacity))
-            .border(1.dp, Morandi.border.copy(alpha = 0.8f), shape)
+            .evadablePanelSurface(
+                vm = vm,
+                slot = UiPanelSlot.COUNTDOWN_TIMER_WINDOW,
+                shape = shape,
+                baseOpacity = opacity,
+                hazeState = null,
+            )
+            .evadablePanelContent(vm, UiPanelSlot.COUNTDOWN_TIMER_WINDOW)
             .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
         Row(
@@ -124,7 +139,7 @@ internal fun CountdownTimerWindow(
             ReIconButton(
                 icon = R.drawable.ic_countdown,
                 desc = stringResource(R.string.countdown_title),
-                onTap = {},
+                onTap = { pinnedOpen = !pinnedOpen },
                 modifier = Modifier.size(22.dp),
                 iconSize = 14.dp,
                 tint = Morandi.accent,

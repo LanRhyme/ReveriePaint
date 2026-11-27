@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 package com.reverie.paint.model
 
 import org.junit.Assert.assertEquals

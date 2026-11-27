@@ -124,16 +124,39 @@ class SrtStoryboardTest {
         ))
     }
 
-    @Test fun `removing one cue preserves remaining cues and their reference times`() {
-        val cues = SrtStoryboard.parse(
-            cue("00:00:01,000", "00:00:02,000", "first") + "\n\n" +
-                cue("00:00:05,000", "00:00:07,000", "second"),
+    @Test fun `storyboard history tracks repeated edits in undo order`() {
+        var entries = emptyList<StoryboardHistoryEntry<String>>()
+        entries = StoryboardHistory.append(
+            entries,
+            StoryboardHistoryEntry(generation = 2, undoCountAfter = 8, label = "delete", payload = "first"),
+        )
+        entries = StoryboardHistory.append(
+            entries,
+            StoryboardHistoryEntry(generation = 2, undoCountAfter = 9, label = "delete", payload = "second"),
         )
 
-        assertEquals(listOf(cues[1]), SrtStoryboard.removeCue(cues, 0))
-        assertEquals(listOf(cues[0]), SrtStoryboard.removeCue(cues, 1))
-        assertNull(SrtStoryboard.removeCue(cues, -1))
-        assertNull(SrtStoryboard.removeCue(cues, 2))
+        val second = StoryboardHistory.undoIndex(entries, generation = 2, undoCountBefore = 9, label = "delete")
+        assertEquals("second", entries[second].payload)
+        entries = StoryboardHistory.markUndone(entries, second, undone = true)
+
+        val first = StoryboardHistory.undoIndex(entries, generation = 2, undoCountBefore = 8, label = "delete")
+        assertEquals("first", entries[first].payload)
+    }
+
+    @Test fun `storyboard redo rejects a stale sidecar after another edit clears redo`() {
+        var entries = listOf(
+            StoryboardHistoryEntry(generation = 1, undoCountAfter = 12, label = "split", payload = Unit),
+        )
+        entries = StoryboardHistory.markUndone(entries, 0, undone = true)
+
+        assertEquals(-1, StoryboardHistory.redoIndex(entries, 1, 11, "paint stroke"))
+        assertEquals(0, StoryboardHistory.redoIndex(entries, 1, 11, "split"))
+
+        entries = StoryboardHistory.append(
+            entries,
+            StoryboardHistoryEntry(generation = 1, undoCountAfter = 12, label = "delete", payload = Unit),
+        )
+        assertEquals(-1, StoryboardHistory.redoIndex(entries, 1, 11, "split"))
     }
 
     @Test fun `splitting a cue preserves every character on both sides of the caret`() {

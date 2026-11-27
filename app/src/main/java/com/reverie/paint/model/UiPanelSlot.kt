@@ -5,9 +5,9 @@
 package com.reverie.paint.model
 
 /**
- * 前缓冲裁剪与 50% 运笔避让所用的 UI 槽位表（共 24 个槽位）。
+ * 前缓冲裁剪与 50% 运笔避让所用的 UI 槽位表（共 25 个槽位）。
  *
- * - [evadable]：是否参与运笔靠近 50% 半透明避让（共 10 个：5 个 QUICK_* + 4 个钉住/参考 + 绘图辅助面板）。
+ * - [evadable]：是否参与运笔靠近 50% 半透明避让（共 11 个：5 个 QUICK_* + 4 个钉住/参考 + 绘图辅助面板 + 倒计时）。
  * - [shadowPadHDp] / [shadowPadTopDp] / [shadowPadBottomDp]：面板外部软阴影
  *   超出 boundsInRoot() 的外扩 dp，用于生成前缓冲孔径裁剪区。
  *
@@ -42,7 +42,7 @@ enum class UiPanelSlot(
      */
     LAYER_FILTER_ADJUST_CARD(evadable = false, shadowPadHDp = 18f, shadowPadTopDp = 12f, shadowPadBottomDp = 26f),
 
-    // 2. 可避让悬浮小窗与钉住/参考面板（10 个：孔径保护 + 32dp/40dp 50% 半透明避让）
+    // 2. 可避让悬浮小窗与钉住/参考面板（11 个：孔径保护 + 32dp/40dp 50% 半透明避让）
     QUICK_ACTION(evadable = true, shadowPadHDp = 16f, shadowPadTopDp = 10f, shadowPadBottomDp = 22f),
     QUICK_BRUSH(evadable = true, shadowPadHDp = 16f, shadowPadTopDp = 10f, shadowPadBottomDp = 22f),
     QUICK_COLOR(evadable = true, shadowPadHDp = 18f, shadowPadTopDp = 12f, shadowPadBottomDp = 26f),
@@ -54,8 +54,9 @@ enum class UiPanelSlot(
     PINNED_COLOR_PANEL(evadable = true, shadowPadHDp = 18f, shadowPadTopDp = 12f, shadowPadBottomDp = 26f),
     DRAWING_GUIDE_PANEL(evadable = true, shadowPadHDp = 18f, shadowPadTopDp = 12f, shadowPadBottomDp = 26f),
 
-    // 3. 临时浮条 (仅孔径裁剪, 不参与 50% 避让); 追加在末尾以保持既有槽位 ordinal 稳定
+    // 3. 后续新增槽位追加在末尾, 保持既有 ordinal 稳定
     UNDO_SCRUB_BAR(evadable = false, shadowPadHDp = 18f, shadowPadTopDp = 12f, shadowPadBottomDp = 26f),
+    COUNTDOWN_TIMER_WINDOW(evadable = true, shadowPadHDp = 16f, shadowPadTopDp = 10f, shadowPadBottomDp = 22f),
     ;
 
     val bit: Int get() = 1 shl ordinal
@@ -63,7 +64,7 @@ enum class UiPanelSlot(
     companion object {
         val COUNT: Int get() = entries.size
 
-        /** 参与 50% 避让的槽位（5 个 QUICK_* + 4 个钉住/参考 + 绘图辅助面板）。 */
+        /** 参与 50% 避让的槽位（5 个 QUICK_* + 4 个钉住/参考 + 绘图辅助面板 + 倒计时）。 */
         val EVADABLE: List<UiPanelSlot> = entries.filter { it.evadable }
 
         /** [EVADABLE] 的数组形式，供热路径用下标循环遍历（零分配）。 */

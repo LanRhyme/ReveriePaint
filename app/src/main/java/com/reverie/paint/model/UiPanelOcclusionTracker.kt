@@ -7,7 +7,7 @@ package com.reverie.paint.model
 import kotlin.math.hypot
 
 /**
- * 21 个 UI 槽位的遮挡状态机（纯 Kotlin，可单测）。
+ * UI 槽位的遮挡状态机（纯 Kotlin，可单测）。
  *
  * 线程约束：本类只在 UI 线程读写。渲染线程不得访问本类，只能读取
  * ViewModel 通过 `@Volatile` 发布的不可变 [UiClipSnapshot]。

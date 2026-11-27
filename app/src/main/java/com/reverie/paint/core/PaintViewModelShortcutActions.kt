@@ -174,9 +174,9 @@ private fun PaintViewModel.executeEditShortcutAction(id: String): Boolean {
     when (id) {
         "undo" -> undo()
         "redo" -> redo()
-        "cut" -> executeCanvasEditAction(com.reverie.paint.model.CanvasEditAction.Clipboard.CUT)
-        "copy" -> executeCanvasEditAction(com.reverie.paint.model.CanvasEditAction.Clipboard.COPY)
-        "paste" -> executeCanvasEditAction(com.reverie.paint.model.CanvasEditAction.Clipboard.PASTE)
+        "cut" -> editCanvasClipboard(cut = true)
+        "copy" -> editCanvasClipboard()
+        "paste" -> editCanvasClipboard(paste = true)
         "deselect" -> clearSelectionAction()
         "select_all" -> selectAllAction()
         "select_all_canvas" -> selectAllCanvasAction()

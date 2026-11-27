@@ -3,7 +3,6 @@
 <resources>
     <!-- App & Common -->
     <string name="app_name">ReveriePaint</string>
-    <string name="app_name_test">ReveriePaint Test</string>
     <string name="common_confirm">确定</string>
     <string name="common_cancel">取消</string>
     <string name="common_done">完成</string>
@@ -545,7 +544,6 @@
     <string name="settings_auto_check_update">启动时自动检查更新</string>
     <string name="settings_auto_check_update_sub">每次打开应用时在后台检测新版本</string>
     <string name="settings_check_update">检查更新</string>
-    <string name="settings_update_disabled_test">测试版已关闭更新检查</string>
     <string name="settings_checking_update">检查中</string>
     <string name="settings_website">项目官网</string>
     <string name="settings_website_sub">访问 ReveriePaint 官方主页</string>
@@ -1640,13 +1638,7 @@
     <string name="selection_copy_cur">复制到当前图层</string>
     <string name="selection_cut_new">剪切到新图层</string>
     <string name="selection_cut_cur">剪切到当前图层</string>
-    <string name="selection_copy_cut">复制/粘贴/剪切</string>
-    <string name="selection_copy_plain">只复制</string>
-    <string name="selection_paste">粘贴</string>
-    <string name="selection_copied">已复制选区</string>
-    <string name="selection_cut">已剪切选区</string>
-    <string name="selection_pasted">已粘贴到当前图层</string>
-    <string name="selection_clipboard_empty">剪贴板是空的</string>
+    <string name="selection_copy_cut">复制/剪切</string>
     <string name="selection_complete_close">完成闭合</string>
     <string name="selection_complete_sel">完成选区</string>
     <string name="selection_undo_point">撤销点</string>
@@ -3683,7 +3675,6 @@
     <string name="countdown_minutes">%1$d 分钟</string>
     <string name="countdown_custom_minutes">自定义分钟数</string>
     <string name="countdown_start">开始</string>
-    <string name="countdown_start_custom">开始自定义</string>
     <string name="countdown_pause">暂停</string>
     <string name="countdown_resume">继续</string>
     <string name="countdown_reset">重置</string>

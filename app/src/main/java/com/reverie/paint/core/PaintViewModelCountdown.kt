@@ -20,6 +20,14 @@ internal fun PaintViewModel.persistCountdownWindowState() {
             .putBoolean("countdown_window_open", countdownWindowOpen)
             .putFloat("countdown_window_x", countdownWindowX)
             .putFloat("countdown_window_y", countdownWindowY)
+            .putFloat(
+                if (isLandscapeMode) "countdown_window_x_land" else "countdown_window_x_port",
+                countdownWindowX,
+            )
+            .putFloat(
+                if (isLandscapeMode) "countdown_window_y_land" else "countdown_window_y_port",
+                countdownWindowY,
+            )
             .apply()
     }
 }

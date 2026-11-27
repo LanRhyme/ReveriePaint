@@ -113,11 +113,6 @@ object SrtStoryboard {
         return cues.toMutableList().also { it[index] = it[index].copy(text = caption) }
     }
 
-    fun removeCue(cues: List<SrtCue>, index: Int): List<SrtCue>? {
-        if (index !in cues.indices) return null
-        return cues.toMutableList().also { it.removeAt(index) }
-    }
-
     /**
      * 在 [index] 处按编辑光标拆帧: 光标左侧留在当前帧, 右侧进入下一帧。
      * 边界只去除空白, 绝不丢字符; 两侧可以暂时为空, 等用户继续输入。

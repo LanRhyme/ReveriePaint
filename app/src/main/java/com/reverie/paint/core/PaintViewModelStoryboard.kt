@@ -21,6 +21,8 @@ import com.reverie.paint.model.StoryboardFrame
 import com.reverie.paint.model.SrtCue
 import com.reverie.paint.model.SrtImportException
 import com.reverie.paint.model.SrtStoryboard
+import com.reverie.paint.model.StoryboardHistory
+import com.reverie.paint.model.StoryboardHistoryEntry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -53,11 +55,8 @@ internal class StoryboardState {
     var probed = false
     @Volatile var generation = 0
 
-    /** Last single-cue delete, used to restore the cue->frame mapping with engine undo/redo. */
-    @Volatile var pendingCueDelete: PendingStoryboardCueDelete? = null
-
-    /** Last split, used to restore both the caption asset and the cue->frame mapping on undo/redo. */
-    @Volatile var pendingCueSplit: PendingStoryboardCueSplit? = null
+    /** Sidecar changes, ordered like native history and matched by count plus command label. */
+    @Volatile var pendingCueHistory: List<StoryboardHistoryEntry<PendingStoryboardCueChange>> = emptyList()
 
     fun reset() {
         generation++
@@ -74,30 +73,23 @@ internal class StoryboardState {
         frames = emptyList()
         trackIndex = -1
         trackId = 0L
-        pendingCueDelete = null
-        pendingCueSplit = null
+        pendingCueHistory = emptyList()
     }
 }
 
-internal data class PendingStoryboardCueDelete(
-    val generation: Int,
-    val undoCountAfter: Int,
-    val allIndex: Int,
-    val cueTime: Int,
-    var undone: Boolean = false,
-)
+internal sealed interface PendingStoryboardCueChange {
+    data class Delete(
+        val allIndex: Int,
+        val cueTime: Int,
+    ) : PendingStoryboardCueChange
 
-internal data class PendingStoryboardCueSplit(
-    val generation: Int,
-    val undoCountAfter: Int,
-    val cuesBefore: List<SrtCue>,
-    val cuesAfter: List<SrtCue>,
-    val timesBefore: List<Int>,
-    val timesAfter: List<Int>,
-    val assetBefore: ByteArray,
-    val assetAfter: ByteArray,
-    var undone: Boolean = false,
-)
+    data class Split(
+        val cuesBefore: List<SrtCue>,
+        val cuesAfter: List<SrtCue>,
+        val timesBefore: List<Int>,
+        val timesAfter: List<Int>,
+    ) : PendingStoryboardCueChange
+}
 
 /** Export every mapped SRT shot to A4 PDF; 4-up is landscape and 6-up is portrait. */
 internal fun PaintViewModel.animationExportStoryboardPdf(uri: Uri, cellsPerPage: Int) {
@@ -125,28 +117,51 @@ internal fun PaintViewModel.animationExportStoryboardPdf(uri: Uri, cellsPerPage:
         }
 
         var originalTime = anim.currentTime
-        var succeeded = false
+        var completedPdf: PdfDocument? = null
         runCore(after = {
-            state.exportingPdf = false
             anim.currentTime = originalTime
-            showActionToast(
-                if (succeeded) R.string.srt_pdf_export_success else R.string.srt_pdf_export_failed,
-            )
+            val pdf = completedPdf
+            if (pdf == null) {
+                state.exportingPdf = false
+                showActionToast(R.string.srt_pdf_export_failed)
+                viewModelScope.launch(Dispatchers.IO) {
+                    runCatching { output.close() }
+                }
+                return@runCore
+            }
+            viewModelScope.launch {
+                var succeeded = false
+                try {
+                    withContext(Dispatchers.IO) {
+                        output.use { pdf.writeTo(it) }
+                    }
+                    succeeded = true
+                } catch (e: Exception) {
+                    android.util.Log.e("RP_SRT", "Storyboard PDF write failed", e)
+                } finally {
+                    withContext(Dispatchers.IO) {
+                        runCatching { pdf.close() }
+                        runCatching { output.close() }
+                    }
+                    state.exportingPdf = false
+                    anim.currentTime = originalTime
+                    showActionToast(
+                        if (succeeded) R.string.srt_pdf_export_success else R.string.srt_pdf_export_failed,
+                    )
+                }
+            }
         }) {
             originalTime = ReverieCoreBridge.animationCurrentTime()
             val width = ReverieCoreBridge.docWidth()
             val height = ReverieCoreBridge.docHeight()
-            if (width <= 0 || height <= 0) {
-                output.close()
-                return@runCore
-            }
+            if (width <= 0 || height <= 0) return@runCore
 
             val pdf = PdfDocument()
             var page: PdfDocument.Page? = null
             var bitmap: Bitmap? = null
+            var keepPdfForIoWrite = false
             val restoreOnionSuppression = anim.isPlaying || anim.shiftTraceActive
             try {
-                bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                 ReverieCoreBridge.setOnionSkinSuppressed(true)
                 val pageWidth = if (cellsPerPage == 4) 842 else 595
                 val pageHeight = if (cellsPerPage == 4) 595 else 842
@@ -156,6 +171,14 @@ internal fun PaintViewModel.animationExportStoryboardPdf(uri: Uri, cellsPerPage:
                 val gap = 16f
                 val cellWidth = (pageWidth - margin * 2 - gap) / columns
                 val cellHeight = (pageHeight - margin * 2 - gap * (rows - 1)) / rows
+                val captionHeight = if (cellsPerPage == 4) 67f else 63f
+                val previewScale = min(
+                    (cellWidth - 8f) / width,
+                    (cellHeight - captionHeight - 8f) / height,
+                )
+                val previewWidth = (width * previewScale * 1.5f).roundToInt().coerceAtLeast(1)
+                val previewHeight = (height * previewScale * 1.5f).roundToInt().coerceAtLeast(1)
+                bitmap = Bitmap.createBitmap(previewWidth, previewHeight, Bitmap.Config.ARGB_8888)
                 val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = Color.rgb(70, 70, 70)
                     textSize = 9f
@@ -175,7 +198,6 @@ internal fun PaintViewModel.animationExportStoryboardPdf(uri: Uri, cellsPerPage:
                 }
                 val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
                 val whitePaint = Paint().apply { color = Color.WHITE }
-                val captionHeight = if (cellsPerPage == 4) 67f else 63f
                 var pageIndex = -1
 
                 cues.indices.forEach { index ->
@@ -240,32 +262,21 @@ internal fun PaintViewModel.animationExportStoryboardPdf(uri: Uri, cellsPerPage:
                         imageRect.centerX() + drawWidth / 2f,
                         imageRect.centerY() + drawHeight / 2f,
                     )
-                    val pageBitmap = Bitmap.createScaledBitmap(
-                        bitmap!!,
-                        (drawWidth * 1.5f).roundToInt().coerceAtLeast(1),
-                        (drawHeight * 1.5f).roundToInt().coerceAtLeast(1),
-                        true,
-                    )
-                    try {
-                        canvas.drawBitmap(pageBitmap, null, destination, imagePaint)
-                    } finally {
-                        if (pageBitmap !== bitmap && !pageBitmap.isRecycled) pageBitmap.recycle()
-                    }
+                    canvas.drawBitmap(bitmap!!, null, destination, imagePaint)
                     canvas.drawRect(imageRect, borderPaint)
                 }
                 page?.let(pdf::finishPage)
                 page = null
-                output.use { pdf.writeTo(it) }
-                succeeded = true
+                completedPdf = pdf
+                keepPdfForIoWrite = true
             } catch (e: Exception) {
-                android.util.Log.e("RP_SRT", "Storyboard PDF export failed", e)
-                runCatching { output.close() }
+                android.util.Log.e("RP_SRT", "Storyboard PDF render failed", e)
             } finally {
                 page?.let { runCatching { pdf.finishPage(it) } }
                 ReverieCoreBridge.setAnimationCurrentTime(originalTime, false)
                 ReverieCoreBridge.setOnionSkinSuppressed(restoreOnionSuppression)
                 bitmap?.recycle()
-                pdf.close()
+                if (!keepPdfForIoWrite) pdf.close()
             }
         }
     }
@@ -488,6 +499,7 @@ internal fun PaintViewModel.animationUpdateStoryboardCue(index: Int, text: Strin
     }
 
     val updatedCue = updatedAll[allIndex]
+    state.pendingCueHistory = emptyList()
     state.allCues = updatedAll
     state.cues = state.cues.toMutableList().also { if (index in it.indices) it[index] = updatedCue }
     state.frames = state.frames.toMutableList().also {
@@ -552,11 +564,14 @@ internal fun PaintViewModel.animationRemoveStoryboardCue(index: Int): Boolean {
         if (!removed) return@runCore
         val updatedTimes = state.cueTimes.toMutableList().also { it[allIndex] = -1 }
         state.cueTimes = updatedTimes
-        state.pendingCueDelete = PendingStoryboardCueDelete(
-            generation = generation,
-            undoCountAfter = undoCountAfter,
-            allIndex = allIndex,
-            cueTime = cueTime,
+        state.pendingCueHistory = StoryboardHistory.append(
+            state.pendingCueHistory,
+            StoryboardHistoryEntry(
+                generation = generation,
+                undoCountAfter = undoCountAfter,
+                label = appContext.getString(R.string.srt_delete_cue),
+                payload = PendingStoryboardCueChange.Delete(allIndex, cueTime),
+            ),
         )
         ReverieCoreBridge.storeRevAsset(
             SrtStoryboard.ASSET + ".frames",
@@ -671,15 +686,19 @@ internal fun PaintViewModel.animationSplitStoryboardCue(
         state.allCues = updatedAll
         state.cueTimes = shiftedTimes
         state.cues = updatedVisible
-        state.pendingCueSplit = PendingStoryboardCueSplit(
-            generation = generation,
-            undoCountAfter = undoCountAfter,
-            cuesBefore = cuesBefore,
-            cuesAfter = updatedAll,
-            timesBefore = timesBefore,
-            timesAfter = shiftedTimes,
-            assetBefore = assetBefore,
-            assetAfter = assetBytes,
+        state.pendingCueHistory = StoryboardHistory.append(
+            state.pendingCueHistory,
+            StoryboardHistoryEntry(
+                generation = generation,
+                undoCountAfter = undoCountAfter,
+                label = appContext.getString(R.string.srt_add_frame),
+                payload = PendingStoryboardCueChange.Split(
+                    cuesBefore = cuesBefore,
+                    cuesAfter = updatedAll,
+                    timesBefore = timesBefore,
+                    timesAfter = shiftedTimes,
+                ),
+            ),
         )
         ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, assetBytes)
         ReverieCoreBridge.storeRevAsset(
@@ -810,6 +829,7 @@ private fun PaintViewModel.animationImportStoryboard(readCues: suspend () -> Lis
             }
             state.allCues = cues
             state.cueTimes = cues.indices.toList()
+            state.pendingCueHistory = emptyList()
             state.visibleIndices = cues.indices.toList()
             state.cues = cues
             state.frames = frames

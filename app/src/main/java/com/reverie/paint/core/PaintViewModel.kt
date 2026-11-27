@@ -506,6 +506,11 @@ class PaintViewModel : ViewModel() {
     internal var referenceWindowX_port: Float = -1f
     internal var referenceWindowY_port: Float = -1f
 
+    internal var countdownWindowX_land: Float = -1f
+    internal var countdownWindowY_land: Float = -1f
+    internal var countdownWindowX_port: Float = -1f
+    internal var countdownWindowY_port: Float = -1f
+
     // Quick Actions Tool Window State (快捷操作浮窗)
     var quickActionWindowOpen by mutableStateOf(false)
     var quickActionWindowWasOpen = false
@@ -686,7 +691,7 @@ class PaintViewModel : ViewModel() {
     var homeCustomBgVersion by mutableLongStateOf(0L)
 
     // ---- 前缓冲 UI 裁剪槽位状态 (Phase 1) ----
-    /** 21 个面板槽位的实测边界与 owner token (UI 线程独占)。 */
+    /** 所有面板槽位的实测边界与 owner token (UI 线程独占)。 */
     val panelOcclusion = com.reverie.paint.model.UiPanelOcclusionTracker()
 
     /** 每个槽位独立的 Compose 状态, 避免全局 mask 牵连所有面板重组。 */
@@ -1406,8 +1411,6 @@ class PaintViewModel : ViewModel() {
         if (currentInstance == this) {
             currentInstance = null
         }
-        selectionClipboard?.takeUnless { it.isRecycled }?.recycle()
-        selectionClipboard = null
         stylusDriver?.release()
         stylusDriver = null
         stopAirbrush()
@@ -2055,12 +2058,6 @@ class PaintViewModel : ViewModel() {
 
     var selectionMask: ByteArray? by mutableStateOf(null)
     var hasSelection by mutableStateOf(false)
-
-    /** Lasso clipboard pastes into the currently selected layer and animation cel. */
-    internal var selectionClipboard: android.graphics.Bitmap? = null
-    internal var selectionClipboardX = 0
-    internal var selectionClipboardY = 0
-    var selectionClipboardAvailable by mutableStateOf(false)
 
     // Semi-transparent blue overlay bitmap built from the mask, drawn on top
     // of the canvas so the user can see the active selection (Krita-style)

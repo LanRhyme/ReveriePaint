@@ -66,14 +66,6 @@ object UpdateManager {
 
     private const val PREFS_KEY_AUTO_CHECK = "auto_check_updates"
 
-    /**
-     * 测试版 (`.beta` 包名或 `-test` 版本后缀) 不接入稳定版更新通道,
-     * 避免测试构建被稳定版更新弹窗打断.
-     */
-    val isUpdatePromptDisabled: Boolean
-        get() = BuildConfig.APPLICATION_ID.endsWith(".beta") ||
-            BuildConfig.VERSION_NAME.contains("-test")
-
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
     private val okHttpClient = OkHttpClient.Builder()
@@ -142,17 +134,6 @@ object UpdateManager {
         isManual: Boolean,
         onResult: ((UpdateCheckResult) -> Unit)? = null,
     ) {
-        if (isUpdatePromptDisabled) {
-            if (isManual) {
-                Toast.makeText(
-                    context,
-                    context.getString(com.reverie.paint.R.string.settings_update_disabled_test),
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-            onResult?.invoke(UpdateCheckResult.AlreadyLatest)
-            return
-        }
         if (isChecking) return
         isChecking = true
 

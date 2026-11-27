@@ -143,8 +143,16 @@ internal fun BoxScope.PaintingQuickWindows(
     LaunchedEffect(vm.countdownWindowOpen) {
         if (vm.countdownWindowOpen && !vm.countdownWindowWasOpen) {
             if (vm.countdownWindowX < 0f || vm.countdownWindowY < 0f) {
-                val panelW = with(density) { 248.dp.toPx() }
-                val panelH = with(density) { 300.dp.toPx() }
+                val panelW = if (vm.countdownWindowWidth > 0f) {
+                    vm.countdownWindowWidth
+                } else {
+                    with(density) { 150.dp.toPx() }
+                }
+                val panelH = if (vm.countdownWindowHeight > 0f) {
+                    vm.countdownWindowHeight
+                } else {
+                    with(density) { 42.dp.toPx() }
+                }
                 vm.countdownWindowX = ((screenW - panelW) / 2f).coerceAtLeast(0f)
                 vm.countdownWindowY = ((screenH - panelH) / 2f).coerceAtLeast(0f)
                 vm.persistCountdownWindowState()
