@@ -653,7 +653,7 @@ class PaintViewModel : ViewModel() {
     var blurBackground by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 背景毛玻璃效果，默认开启（API<31 设备不支持模糊，自动回退实色）
     var canvasOpenWaveEnabled by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 打开/新建画布扭曲波纹特效，默认开启（Android 12 以下强制关闭）
     var accentColorHex by mutableStateOf("#879ED1")
-    var monetEnabled by mutableStateOf(false) // 莫奈动态取色
+    var monetEnabled by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 莫奈动态取色，默认开启（Android 12 以下不支持）
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var themeContrast by mutableStateOf("STANDARD") // "SOFT", "STANDARD", "HIGH"
     var themeStyle by mutableStateOf(com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED) // MORANDI_TINTED, NEUTRAL_STUDIO, WARM_EARTHY, VIBRANT_GLOW

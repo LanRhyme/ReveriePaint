@@ -207,7 +207,8 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         homeCustomBgScaleMode = prefs.getString("home_custom_bg_scale", "CROP") ?: "CROP"
         homeCustomBgMaskAlpha = prefs.getFloat("home_custom_bg_mask", 0.2f).coerceIn(0f, 0.8f)
         homeCustomBgVersion = System.currentTimeMillis()
-        monetEnabled = prefs.getBoolean("monetEnabled", false)
+        monetEnabled = prefs.getBoolean("monetEnabled", true) &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
         themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
         themeContrast = prefs.getString("themeContrast", "STANDARD") ?: "STANDARD"
         themeStyle = prefs.getString("themeStyle", com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED) ?: com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED
