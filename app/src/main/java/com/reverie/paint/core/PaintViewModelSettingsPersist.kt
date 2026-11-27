@@ -74,6 +74,20 @@ internal fun PaintViewModel.updateLayerFlashEnabled(enabled: Boolean) {
     }
 }
 
+internal fun PaintViewModel.updateGallerySortMode(mode: String) {
+    val sanitized = when (mode) {
+        "NAME", "STROKES", "MODIFIED" -> mode
+        else -> "MODIFIED"
+    }
+    gallerySortMode = sanitized
+    if (isAppContextReady()) {
+        prefs
+            .edit()
+            .putString("gallerySortMode", sanitized)
+            .apply()
+    }
+}
+
 internal fun PaintViewModel.updateMaxUndoSteps(steps: Int) {
     maxUndoSteps = steps.coerceIn(10, 200)
     if (isAppContextReady()) {
@@ -213,6 +227,11 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
         themeContrast = prefs.getString("themeContrast", "STANDARD") ?: "STANDARD"
         themeStyle = prefs.getString("themeStyle", com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED) ?: com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED
+        gallerySortMode = when (prefs.getString("gallerySortMode", "MODIFIED")) {
+            "NAME" -> "NAME"
+            "STROKES" -> "STROKES"
+            else -> "MODIFIED"
+        }
         immersiveMode = true
         extendToCutout = prefs.getBoolean("extendToCutout", true)
         penOnlyMode = prefs.getBoolean("penOnlyMode", false)

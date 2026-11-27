@@ -312,6 +312,16 @@
     <string name="create_target_folder_detach">移出画集</string>
     <string name="gallery_deselect_all">取消全选</string>
     <string name="gallery_processing">正在处理...</string>
+    <string name="gallery_sort_title">排序方式</string>
+    <string name="gallery_sort_modified">最近修改</string>
+    <string name="gallery_sort_name">名称排序</string>
+    <string name="gallery_sort_strokes">笔画最多</string>
+    <string name="gallery_empty_clear_search">清除搜索</string>
+    <string name="gallery_time_minutes_ago">%d 分钟前</string>
+    <string name="gallery_time_hours_ago">%d 小时前</string>
+    <string name="gallery_time_days_ago">%d 天前</string>
+    <string name="gallery_drag_exit_hint">拖到此处移出画集</string>
+    <string name="gallery_menu_sort">排序</string>
 
     <!-- Create Canvas -->
     <string name="create_title">创建画布</string>

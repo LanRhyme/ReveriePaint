@@ -2019,6 +2019,7 @@ class PaintViewModel : ViewModel() {
         internal set
     var currentFolder by mutableStateOf<com.reverie.paint.model.Project?>(null)
     var searchQuery by mutableStateOf("")
+    var gallerySortMode by mutableStateOf("MODIFIED")
     var pendingExternalImageUri by mutableStateOf<android.net.Uri?>(null)
     var pendingExternalBrushUris by mutableStateOf<List<android.net.Uri>?>(null)
     var isDraggingExternal by mutableStateOf(false)

@@ -312,6 +312,16 @@
     <string name="create_target_folder_detach">Detach from Stack</string>
     <string name="gallery_deselect_all">Deselect All</string>
     <string name="gallery_processing">Processing...</string>
+    <string name="gallery_sort_title">Sort by</string>
+    <string name="gallery_sort_modified">Recently Modified</string>
+    <string name="gallery_sort_name">Name</string>
+    <string name="gallery_sort_strokes">Most Strokes</string>
+    <string name="gallery_empty_clear_search">Clear Search</string>
+    <string name="gallery_time_minutes_ago">%dm ago</string>
+    <string name="gallery_time_hours_ago">%dh ago</string>
+    <string name="gallery_time_days_ago">%dd ago</string>
+    <string name="gallery_drag_exit_hint">Drag here to move out</string>
+    <string name="gallery_menu_sort">Sort</string>
 
     <!-- Create Canvas -->
     <string name="create_title">Create Canvas</string>

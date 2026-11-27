@@ -10,6 +10,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -19,43 +20,40 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.model.Project
+import com.reverie.paint.model.UiAnimationSpeed
 import com.reverie.paint.ui.theme.AppColors
+import com.reverie.paint.ui.theme.Motion
+import com.reverie.paint.ui.theme.blendColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -140,7 +138,7 @@ internal fun rememberThumbnail(path: String?, lastModified: Long): Bitmap? {
 }
 
 /**
- * 单张画作卡片缩略图容器 (1:1 外框 + 内置自适应画面比例)
+ * 单张画作卡片缩略图容器 (1:1 外框 + 内置自适应画面比例与工作室画框镶边)
  */
 @Composable
 internal fun ArtworkThumbnailBox(
@@ -156,13 +154,17 @@ internal fun ArtworkThumbnailBox(
 ) {
     val thumb = rememberThumbnail(project.previewPath, project.lastModified)
     val rawRatio = if (project.width > 0 && project.height > 0) {
-        (project.width.toFloat() / project.height.toFloat()).coerceIn(0.2f, 5.0f)
+        (project.width.toFloat() / project.height.toFloat()).coerceIn(0.52f, 1.90f)
     } else {
         1.0f
     }
     val thumbFade by animateFloatAsState(
         targetValue = if (thumb != null) 1f else 0f,
-        animationSpec = tween(220),
+        animationSpec = when (Motion.currentSpeed) {
+            UiAnimationSpeed.OFF -> snap()
+            UiAnimationSpeed.FAST -> tween(90)
+            UiAnimationSpeed.NORMAL -> tween(240)
+        },
         label = "ThumbFade",
     )
 
@@ -172,6 +174,17 @@ internal fun ArtworkThumbnailBox(
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "MergePulse",
     )
+
+    val isDark = colors.isDarkTheme()
+    val artShape = RoundedCornerShape(12.dp)
+    val hairlineBrush = remember(isDark) { artboardHairlineBrush(colors) }
+    val backdropColor = if (thumb != null) {
+        if (isDark) colors.panelHi else Color.White
+    } else {
+        colors.panelHi
+    }
+    val obsidianBadgeBg = Color(0xFF141418).copy(alpha = 0.68f)
+    val obsidianBadgeBorder = Color.White.copy(alpha = 0.16f)
 
     Box(
         modifier = modifier
@@ -188,22 +201,38 @@ internal fun ArtworkThumbnailBox(
                 }
                 .aspectRatio(rawRatio, matchHeightConstraintsFirst = rawRatio < 1.0f)
                 .shadow(
-                    elevation = if (isMergeTarget) 12.dp else 6.dp,
-                    shape = RoundedCornerShape(8.dp),
-                    spotColor = if (isMergeTarget) colors.accent.copy(alpha = 0.45f) else Color.Black.copy(alpha = 0.22f),
-                    ambientColor = Color.Black.copy(alpha = 0.14f),
+                    elevation = if (isMergeTarget) 16.dp else if (isDark) 10.dp else 8.dp,
+                    shape = artShape,
+                    spotColor = if (isMergeTarget) {
+                        colors.accent.copy(alpha = 0.45f)
+                    } else {
+                        Color.Black.copy(alpha = if (isDark) 0.42f else 0.16f)
+                    },
+                    ambientColor = Color.Black.copy(alpha = if (isDark) 0.24f else 0.08f),
                     clip = false,
                 )
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.White)
+                .clip(artShape)
+                .background(backdropColor)
+                .drawWithContent {
+                    drawContent()
+                    if (!isMergeTarget && cardRingWidth <= 0.dp) {
+                        val strokePx = 0.75.dp.toPx()
+                        val outline = artShape.createOutline(size, layoutDirection, this)
+                        drawOutline(
+                            outline = outline,
+                            brush = hairlineBrush,
+                            style = Stroke(width = strokePx),
+                        )
+                    }
+                }
                 .then(
                     if (isMergeTarget) {
-                        Modifier.border(2.5.dp, colors.accent, RoundedCornerShape(8.dp))
+                        Modifier.border(2.5.dp, colors.accent, artShape)
                     } else if (cardRingWidth > 0.dp) {
-                        Modifier.border(cardRingWidth, colors.accent, RoundedCornerShape(8.dp))
+                        Modifier.border(cardRingWidth, colors.accent, artShape)
                     } else {
                         Modifier
-                    }
+                    },
                 ),
             contentAlignment = Alignment.Center,
         ) {
@@ -214,7 +243,12 @@ internal fun ArtworkThumbnailBox(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = thumbFade },
+                        .graphicsLayer {
+                            val settle = 0.985f + 0.015f * thumbFade
+                            alpha = thumbFade
+                            scaleX = settle
+                            scaleY = settle
+                        },
                 )
             } else {
                 Box(
@@ -224,182 +258,122 @@ internal fun ArtworkThumbnailBox(
                     Icon(
                         painter = painterResource(R.drawable.ic_canvas_tab),
                         contentDescription = null,
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(36.dp),
+                        tint = colors.subText.copy(alpha = 0.45f),
+                        modifier = Modifier.size(32.dp),
                     )
                 }
             }
+
             // 选中蒙层
             Box(modifier = Modifier.fillMaxSize().background(selectTint))
-        }
 
-        // 自动保存角标
-        if (project.isAutoSaved) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(6.dp)
-                    .shadow(3.dp, RoundedCornerShape(12.dp), clip = false)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .padding(horizontal = 7.dp, vertical = 3.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painterResource(R.drawable.ic_save),
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(10.dp),
-                    )
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        text = stringResource(R.string.gallery_badge_autosave),
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+            // 自动保存角标 (贴合画框左上角)
+            if (project.isAutoSaved) {
+                GalleryMicroBadge(
+                    text = stringResource(R.string.gallery_badge_autosave),
+                    iconRes = R.drawable.ic_save,
+                    containerColor = obsidianBadgeBg,
+                    contentColor = Color.White,
+                    borderColor = obsidianBadgeBorder,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp),
+                )
             }
-        }
 
-        // 动画画布角标
-        if (project.isAnimation) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .shadow(3.dp, RoundedCornerShape(12.dp), clip = false)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .padding(horizontal = 7.dp, vertical = 3.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painterResource(R.drawable.ic_clock),
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(10.dp),
-                    )
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        text = stringResource(R.string.gallery_badge_anim),
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+            // 动画画布角标 (贴合画框右上角)
+            if (project.isAnimation) {
+                GalleryMicroBadge(
+                    text = stringResource(R.string.gallery_badge_anim),
+                    iconRes = R.drawable.ic_clock,
+                    containerColor = obsidianBadgeBg,
+                    contentColor = Color.White,
+                    borderColor = obsidianBadgeBorder,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp),
+                )
             }
-        }
 
-        // 底部左侧角标组合: 茶绘工程标识 / 画集封面角标
-        if (project.isCollab || isFolderCover) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                if (project.isCollab) {
-                    Box(
-                        modifier = Modifier
-                            .shadow(3.dp, RoundedCornerShape(10.dp), clip = false)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(colors.accent.copy(alpha = 0.92f))
-                            .padding(horizontal = 7.dp, vertical = 2.5.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                painterResource(R.drawable.ic_cloud),
-                                contentDescription = null,
-                                tint = colors.onAccent,
-                                modifier = Modifier.size(10.dp),
-                            )
-                            Spacer(Modifier.width(3.dp))
-                            Text(
-                                text = stringResource(R.string.gallery_badge_collab),
-                                color = colors.onAccent,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
+            // 底部左侧角标组合: 茶绘工程标识 / 画集封面角标
+            if (project.isCollab || isFolderCover) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (project.isCollab) {
+                        GalleryMicroBadge(
+                            text = stringResource(R.string.gallery_badge_collab),
+                            iconRes = R.drawable.ic_cloud,
+                            containerColor = colors.accent.copy(alpha = 0.94f),
+                            contentColor = colors.onAccent,
+                            borderColor = Color.White.copy(alpha = 0.18f),
+                        )
                     }
-                }
-                if (isFolderCover) {
-                    Box(
-                        modifier = Modifier
-                            .shadow(2.dp, RoundedCornerShape(8.dp), clip = false)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.panel.copy(alpha = 0.92f))
-                            .border(0.5.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.5.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                painterResource(R.drawable.ic_image),
-                                contentDescription = null,
-                                tint = colors.text,
-                                modifier = Modifier.size(10.dp),
-                            )
-                            Spacer(Modifier.width(3.dp))
-                            Text(
-                                text = stringResource(R.string.gallery_cover_badge),
-                                color = colors.text,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Medium,
-                            )
-                        }
+                    if (isFolderCover) {
+                        GalleryMicroBadge(
+                            text = stringResource(R.string.gallery_cover_badge),
+                            iconRes = R.drawable.ic_image,
+                            containerColor = obsidianBadgeBg,
+                            contentColor = Color.White,
+                            borderColor = obsidianBadgeBorder,
+                        )
                     }
                 }
             }
-        }
 
-        // 多选模式勾选角标
-        CardSelectionBadge(
-            isSelectMode = isSelectMode,
-            isSelected = isSelected,
-            colors = colors,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(8.dp),
-        )
+            // 多选模式勾选角标 (贴合画框右下角)
+            CardSelectionBadge(
+                isSelectMode = isSelectMode,
+                isSelected = isSelected,
+                colors = colors,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(7.dp),
+            )
+        }
 
         // 互叠合成新画集浮动提示徽章
         AnimatedVisibility(
             visible = isMergeTarget,
-            enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow), initialScale = 0.8f) + fadeIn(tween(140)),
+            enter = scaleIn(
+                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                initialScale = 0.8f,
+            ) + fadeIn(tween(140)),
             exit = scaleOut(tween(120), targetScale = 0.9f) + fadeOut(tween(100)),
             modifier = Modifier.align(Alignment.Center),
         ) {
-            Box(
+            Row(
                 modifier = Modifier
-                    .shadow(8.dp, RoundedCornerShape(16.dp))
-                    .clip(RoundedCornerShape(16.dp))
+                    .shadow(10.dp, CircleShape, clip = false)
+                    .clip(CircleShape)
                     .background(colors.panel.copy(alpha = 0.96f))
-                    .border(1.dp, colors.border, RoundedCornerShape(16.dp))
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                    .border(0.75.dp, studioHairlineBrush(colors), CircleShape)
+                    .padding(horizontal = 11.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_folder_plus),
-                        contentDescription = null,
-                        tint = colors.text,
-                        modifier = Modifier.size(13.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = stringResource(R.string.gallery_drag_merge_stack),
-                        color = colors.text,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
+                Icon(
+                    painter = painterResource(R.drawable.ic_folder_plus),
+                    contentDescription = null,
+                    tint = colors.accent,
+                    modifier = Modifier.size(13.dp),
+                )
+                Text(
+                    text = stringResource(R.string.gallery_drag_merge_stack),
+                    color = colors.text,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         }
     }
 }
 
 /**
- * 画集扇形堆叠卡片缩略图容器 (3 层散落层叠 + 展开动画)
+ * 画集扇形堆叠卡片缩略图容器 (3 层散落层叠 + 展开动画 + 主题自适应纸板质感)
  */
 @Composable
 internal fun FolderThumbnailBox(
@@ -458,6 +432,17 @@ internal fun FolderThumbnailBox(
         }
     }
 
+    val isDark = colors.isDarkTheme()
+    val stackShape = RoundedCornerShape(12.dp)
+    val hairlineBrush = remember(isDark) { artboardHairlineBrush(colors) }
+    val back1Fill = if (isDark) blendColors(colors.panelHi, colors.bg, 0.35f) else blendColors(colors.panel, Color.Black, 0.05f)
+    val back2Fill = if (isDark) colors.panelHi else colors.panel
+    val frontFill = if (thumb0 != null) {
+        if (isDark) colors.panelHi else Color.White
+    } else {
+        colors.panelHi
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -470,13 +455,19 @@ internal fun FolderThumbnailBox(
                 .fillMaxSize(0.86f)
                 .aspectRatio(ratio2, matchHeightConstraintsFirst = ratio2 < 1.0f)
                 .graphicsLayer {
-                    rotationZ = -7f - 5.5f * fanPress
-                    translationX = (-7).dp.toPx() - 5.dp.toPx() * fanPress
-                    translationY = 4.dp.toPx() + 3.dp.toPx() * fanPress
+                    rotationZ = -6.5f - 5f * fanPress
+                    translationX = (-6).dp.toPx() - 4.5.dp.toPx() * fanPress
+                    translationY = 3.5.dp.toPx() + 2.5.dp.toPx() * fanPress
                 }
-                .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFFEDEDED)),
+                .shadow(
+                    elevation = if (isDark) 6.dp else 4.dp,
+                    shape = stackShape,
+                    spotColor = Color.Black.copy(alpha = if (isDark) 0.36f else 0.12f),
+                    clip = false,
+                )
+                .clip(stackShape)
+                .background(back1Fill)
+                .border(0.5.dp, hairlineBrush, stackShape),
             contentAlignment = Alignment.Center,
         ) {
             if (thumb2 != null) {
@@ -488,11 +479,9 @@ internal fun FolderThumbnailBox(
                 )
                 Box(
                     modifier = Modifier.fillMaxSize().background(
-                        Color.Black.copy(alpha = 0.08f),
+                        Color.Black.copy(alpha = 0.14f),
                     ),
                 )
-            } else {
-                Box(modifier = Modifier.fillMaxSize().background(Color(0xFFE5E5E7)))
             }
         }
 
@@ -502,13 +491,19 @@ internal fun FolderThumbnailBox(
                 .fillMaxSize(0.88f)
                 .aspectRatio(ratio1, matchHeightConstraintsFirst = ratio1 < 1.0f)
                 .graphicsLayer {
-                    rotationZ = 6f + 5f * fanPress
-                    translationX = 6.dp.toPx() + 5.dp.toPx() * fanPress
-                    translationY = (-3).dp.toPx() - 2.dp.toPx() * fanPress
+                    rotationZ = 5.5f + 4.5f * fanPress
+                    translationX = 5.5.dp.toPx() + 4.5.dp.toPx() * fanPress
+                    translationY = (-2.5).dp.toPx() - 2.dp.toPx() * fanPress
                 }
-                .shadow(6.dp, RoundedCornerShape(8.dp), clip = false)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFFF3F3F3)),
+                .shadow(
+                    elevation = if (isDark) 8.dp else 6.dp,
+                    shape = stackShape,
+                    spotColor = Color.Black.copy(alpha = if (isDark) 0.40f else 0.14f),
+                    clip = false,
+                )
+                .clip(stackShape)
+                .background(back2Fill)
+                .border(0.5.dp, hairlineBrush, stackShape),
             contentAlignment = Alignment.Center,
         ) {
             if (thumb1 != null) {
@@ -520,32 +515,53 @@ internal fun FolderThumbnailBox(
                 )
                 Box(
                     modifier = Modifier.fillMaxSize().background(
-                        Color.Black.copy(alpha = 0.04f),
+                        Color.Black.copy(alpha = 0.06f),
                     ),
                 )
-            } else {
-                Box(modifier = Modifier.fillMaxSize().background(Color(0xFFEEEEF0)))
             }
         }
 
         // Foreground main folder cover (顶层主封面)
         val finalRingWidth = maxOf(hoverRingWidth, borderStrokeWidth)
+        val coverHoverLift by animateFloatAsState(
+            targetValue = if (isFolderHovered) 1f else 0f,
+            animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) snap() else Motion.snapBouncy,
+            label = "FolderCoverHoverLift",
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize(0.92f)
                 .aspectRatio(ratio0, matchHeightConstraintsFirst = ratio0 < 1.0f)
                 .graphicsLayer {
-                    rotationZ = -0.8f - 1.0f * fanPress
+                    rotationZ = -0.5f - 0.8f * fanPress
+                    translationY = -2.5.dp.toPx() * coverHoverLift
                 }
-                .shadow(8.dp, RoundedCornerShape(8.dp), clip = false)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.White)
+                .shadow(
+                    elevation = if (isDark) 12.dp else 9.dp,
+                    shape = stackShape,
+                    spotColor = Color.Black.copy(alpha = if (isDark) 0.44f else 0.16f),
+                    clip = false,
+                )
+                .clip(stackShape)
+                .background(frontFill)
+                .drawWithContent {
+                    drawContent()
+                    if (finalRingWidth <= 0.dp) {
+                        val strokePx = 0.75.dp.toPx()
+                        val outline = stackShape.createOutline(size, layoutDirection, this)
+                        drawOutline(
+                            outline = outline,
+                            brush = hairlineBrush,
+                            style = Stroke(width = strokePx),
+                        )
+                    }
+                }
                 .then(
                     if (finalRingWidth > 0.dp) {
                         Modifier.border(
                             width = finalRingWidth,
                             color = colors.accent.copy(alpha = ringAlpha),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = stackShape,
                         )
                     } else {
                         Modifier
@@ -561,53 +577,65 @@ internal fun FolderThumbnailBox(
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(10.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.panel.copy(alpha = 0.55f))
+                        .border(0.5.dp, hairlineBrush, RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_folders),
-                        contentDescription = null,
-                        tint = Color(0xFF757575),
-                        modifier = Modifier.size(36.dp),
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        stringResource(R.string.gallery_badge_stack),
-                        color = Color(0xFF9E9E9E),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_folders),
+                            contentDescription = null,
+                            tint = colors.subText.copy(alpha = 0.7f),
+                            modifier = Modifier.size(30.dp),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = stringResource(R.string.gallery_badge_stack),
+                            color = colors.subText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
                 }
             }
-        }
 
-        // Badge: Folder count with layer icon pill
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(6.dp)
-                .shadow(2.dp, RoundedCornerShape(12.dp), clip = false)
-                .clip(RoundedCornerShape(12.dp))
-                .background(colors.panel.copy(alpha = 0.92f))
-                .border(0.5.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
-                .padding(horizontal = 7.dp, vertical = 2.5.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_folders),
-                    contentDescription = null,
-                    tint = colors.subText,
-                    modifier = Modifier.size(11.dp),
-                )
-                Spacer(Modifier.width(3.dp))
-                Text(
-                    text = "${project.items.size}",
-                    color = colors.text,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
+            // 画集数量角标 (贴合顶层主封面右上角)
+            GalleryMicroBadge(
+                text = "${project.items.size}",
+                iconRes = R.drawable.ic_folders,
+                containerColor = if (thumb0 != null) {
+                    Color(0xFF141418).copy(alpha = 0.68f)
+                } else {
+                    colors.panel.copy(alpha = 0.92f)
+                },
+                contentColor = if (thumb0 != null) Color.White else colors.text,
+                borderColor = if (thumb0 != null) {
+                    Color.White.copy(alpha = 0.16f)
+                } else {
+                    (if (isDark) Color.White else Color.Black).copy(alpha = 0.10f)
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp),
+            )
+
+            // 多选模式勾选角标 (贴合顶层主封面右下角)
+            CardSelectionBadge(
+                isSelectMode = isSelectMode,
+                isSelected = isSelected,
+                colors = colors,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(6.dp),
+            )
         }
 
         // Drop hint badge when dragging project over folder
@@ -620,46 +648,35 @@ internal fun FolderThumbnailBox(
             exit = scaleOut(tween(120), targetScale = 0.9f) + fadeOut(tween(100)),
             modifier = Modifier.align(Alignment.Center),
         ) {
-            Box(
+            Row(
                 modifier = Modifier
-                    .shadow(6.dp, RoundedCornerShape(16.dp))
-                    .clip(RoundedCornerShape(16.dp))
+                    .shadow(10.dp, CircleShape, clip = false)
+                    .clip(CircleShape)
                     .background(colors.panel.copy(alpha = 0.96f))
-                    .border(1.dp, colors.border, RoundedCornerShape(16.dp))
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                    .border(0.75.dp, studioHairlineBrush(colors), CircleShape)
+                    .padding(horizontal = 11.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_folders),
-                        contentDescription = null,
-                        tint = colors.text,
-                        modifier = Modifier.size(13.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        stringResource(R.string.gallery_drag_drop_to_stack),
-                        color = colors.text,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
+                Icon(
+                    painter = painterResource(R.drawable.ic_folders),
+                    contentDescription = null,
+                    tint = colors.accent,
+                    modifier = Modifier.size(13.dp),
+                )
+                Text(
+                    text = stringResource(R.string.gallery_drag_drop_to_stack),
+                    color = colors.text,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         }
-
-        // 多选模式勾选角标
-        CardSelectionBadge(
-            isSelectMode = isSelectMode,
-            isSelected = isSelected,
-            colors = colors,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(8.dp),
-        )
     }
 }
 
 /**
- * 画作/画集卡片下方的元数据栏 (包含名称点击重命名、尺寸分辨率与笔画数)
+ * 画作/画集卡片下方的居中元数据栏 (与居中画框光学对齐: 名称点击重命名、尺寸与笔画/相对时间)
  */
 @Composable
 internal fun CardMetaSection(
@@ -670,14 +687,21 @@ internal fun CardMetaSection(
     onLongClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Spacer(Modifier.height(8.dp))
+    val justNowLabel = stringResource(R.string.gallery_time_just_now)
+    val minsAgoFormat = stringResource(R.string.gallery_time_minutes_ago)
+    val hoursAgoFormat = stringResource(R.string.gallery_time_hours_ago)
+    val daysAgoFormat = stringResource(R.string.gallery_time_days_ago)
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(9.dp))
 
         // 标题行: 点击弹出重命名对话框
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(4.dp))
+                .clip(RoundedCornerShape(6.dp))
                 .combinedClickable(
                     enabled = true,
                     indication = null,
@@ -685,70 +709,110 @@ internal fun CardMetaSection(
                     onClick = onRenameClick,
                     onLongClick = onLongClick,
                 )
-                .padding(vertical = 1.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 6.dp, vertical = 1.5.dp),
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = project.name,
                 color = colors.text,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
             )
         }
 
         Spacer(Modifier.height(2.dp))
 
-        // 副标题行: 尺寸规格 (px) + 修改时间 / 自动保存 / 画集数量
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            val autoSavedText = stringResource(R.string.gallery_status_autosave)
-
-            // 尺寸规格标签 (非画集且具有有效尺寸时展示)
-            val dimenFormat = stringResource(R.string.gallery_dimen_px)
-            val dimenText = remember(project.width, project.height, project.isFolder, dimenFormat) {
-                if (!project.isFolder && project.width > 0 && project.height > 0) {
-                    String.format(Locale.getDefault(), dimenFormat, project.width, project.height)
-                } else {
-                    null
-                }
-            }
-
-            val leftInfo = if (project.isFolder) {
-                stringResource(R.string.gallery_stack_artworks_count, project.items.size)
-            } else if (project.isAutoSaved) {
-                if (dimenText != null) "$dimenText · $autoSavedText" else autoSavedText
+        // 副标题行: 居中展示尺寸、笔画或相对时间 / 自动保存状态 / 画集作品数
+        val autoSavedText = stringResource(R.string.gallery_status_autosave)
+        val dimenFormat = stringResource(R.string.gallery_dimen_px)
+        val dimenText = remember(project.width, project.height, project.isFolder, dimenFormat) {
+            if (!project.isFolder && project.width > 0 && project.height > 0) {
+                String.format(Locale.getDefault(), dimenFormat, project.width, project.height)
             } else {
-                dimenText ?: ""
+                null
             }
+        }
 
-            if (leftInfo.isNotEmpty()) {
+        if (project.isFolder) {
+            Text(
+                text = stringResource(R.string.gallery_stack_artworks_count, project.items.size),
+                color = colors.subText.copy(alpha = 0.82f),
+                fontSize = 11.sp,
+                style = TextStyle(fontFeatureSettings = "tnum"),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else if (project.isAutoSaved) {
+            val info = if (dimenText != null) "$dimenText · $autoSavedText" else autoSavedText
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(colors.accent),
+                )
+                Spacer(Modifier.width(4.dp))
                 Text(
-                    text = leftInfo,
-                    color = if (project.isAutoSaved) colors.accent else colors.subText,
+                    text = info,
+                    color = colors.accent,
                     fontSize = 11.sp,
-                    fontWeight = if (project.isAutoSaved) FontWeight.SemiBold else FontWeight.Normal,
+                    fontWeight = FontWeight.Medium,
+                    style = TextStyle(fontFeatureSettings = "tnum"),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
                 )
-            } else {
-                Spacer(Modifier.weight(1f, fill = false))
             }
-
-            if (!project.isFolder && project.strokeCount > 0) {
-                Spacer(Modifier.width(6.dp))
+        } else {
+            val secondaryMeta = when {
+                project.strokeCount > 0 -> stringResource(R.string.gallery_stroke_count, project.strokeCount)
+                project.lastModified > 0L -> remember(project.lastModified, justNowLabel) {
+                    formatRelativeModifiedTime(
+                        timestampMs = project.lastModified,
+                        justNow = justNowLabel,
+                        minsFormat = minsAgoFormat,
+                        hoursFormat = hoursAgoFormat,
+                        daysFormat = daysAgoFormat,
+                    )
+                }
+                else -> null
+            }
+            val metaLine = listOfNotNull(dimenText, secondaryMeta).joinToString(" · ")
+            if (metaLine.isNotEmpty()) {
                 Text(
-                    text = stringResource(R.string.gallery_stroke_count, project.strokeCount),
-                    color = colors.subText,
+                    text = metaLine,
+                    color = colors.subText.copy(alpha = 0.80f),
                     fontSize = 11.sp,
+                    style = TextStyle(fontFeatureSettings = "tnum"),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
+    }
+}
+
+private fun formatRelativeModifiedTime(
+    timestampMs: Long,
+    justNow: String,
+    minsFormat: String,
+    hoursFormat: String,
+    daysFormat: String,
+): String {
+    val diffMs = (System.currentTimeMillis() - timestampMs).coerceAtLeast(0L)
+    val mins = diffMs / 60_000L
+    val hours = diffMs / 3_600_000L
+    val days = diffMs / 86_400_000L
+    return when {
+        mins < 1L -> justNow
+        mins < 60L -> String.format(Locale.getDefault(), minsFormat, mins.toInt())
+        hours < 24L -> String.format(Locale.getDefault(), hoursFormat, hours.toInt())
+        days < 7L -> String.format(Locale.getDefault(), daysFormat, days.toInt())
+        else -> SimpleDateFormat("MM/dd", Locale.getDefault()).format(Date(timestampMs))
     }
 }
