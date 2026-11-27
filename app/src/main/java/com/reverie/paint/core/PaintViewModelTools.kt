@@ -2332,9 +2332,7 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
         }) {
             val newIdx = ReverieCoreBridge.copySelectionToNewLayer(cut)
             if (newIdx >= 0) {
-                if (!LanguageManager.isChinese()) {
-                    ReverieCoreBridge.setLayerName(newIdx, "Selection $newIdx")
-                }
+                ReverieCoreBridge.setLayerName(newIdx, getString(R.string.layer_default_selection, newIdx))
                 success = true
                 ReverieCoreBridge.clearSelection()
                 refreshDisplay()

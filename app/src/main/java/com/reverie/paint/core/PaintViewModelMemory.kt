@@ -309,7 +309,7 @@ internal fun PaintViewModel.releaseCachesAndSave() {
     realInkSink?.trimMemory()
     System.gc()
     val name = docName.ifBlank {
-        if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork"
+        getString(R.string.project_default_name).ifBlank { "Untitled Artwork" }
     }
     saveProject(name)
 }

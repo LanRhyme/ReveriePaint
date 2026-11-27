@@ -86,7 +86,7 @@ app/src/main/java/com/reverie/paint/     # 正式(与 debug 共用)代码
 
 app/src/debug/              # debug 专属源集: 仅开发/量测用的代码与文案
                             #   java/.../perf/PerfHud.kt (性能标尺 HUD + 设置入口)
-                            #   res/values{,-en}/strings.xml (这些文案不进正式包)
+                            #   res/values{,-zh-rCN}/strings.xml (这些文案不进正式包)
 app/src/release/            # release 专属源集: 上述功能的同签名空实现 (正式包里不存在)
                             #   见 docs/RENDER-OPTIMIZATION.md §6.2
 
@@ -143,7 +143,7 @@ art/        # 图标素材
 ## 6. Kotlin / Compose 编码规范
 
 - 缩进 4 空格, 行宽 ≤120 (见 `.editorconfig`)
-- **UI 文案统一使用 strings.xml 国际化资源管理** (`stringResource(R.string.*)`), 严禁在 Compose 中硬编码中文字符串字面量; 平时日常编写代码时只需维护简体中文 (`values/strings.xml`) 与英文 (`values-en/strings.xml`), 中文文案尽量少用句号; 日语 (`values-ja/`)、繁体中文 (`values-zh-rTW/`) 与猫猫语 (`values-cat/`) 三种扩展语言只在每次大版本更新发版前或用户明确指示时进行全量增量补全, 平时日常开发无需频繁同步; 主题色一律引用 `ui/theme` 的 Morandi 语义色, 禁止散落硬编码颜色
+- **UI 文案统一使用 strings.xml 国际化资源管理** (`stringResource(R.string.*)`), 严禁在 Compose 中硬编码中文字符串字面量; 平时日常编写代码时只需维护英文默认兜底 (`values/strings.xml`) 与简体中文 (`values-zh-rCN/strings.xml`), 中文文案尽量少用句号; 日语 (`values-ja/`)、繁体中文 (`values-zh-rTW/`) 与猫猫语 (`values-cat/`) 三种扩展语言只在每次大版本更新发版前或用户明确指示时进行全量增量补全, 平时日常开发无需频繁同步; 主题色一律引用 `ui/theme` 的 Morandi 语义色, 禁止散落硬编码颜色
 - 状态管理: ViewModel 用 `mutableStateOf/mutableIntStateOf/...` + `by` 委托; 高频数值 (缩放%/旋转°) 用专用 `mutable*StateOf` 重载避免装箱
 - 偏好读写统一走 `PaintViewModel.prefs` 访问器, 不要在任何地方再写 `getSharedPreferences("paint_prefs", ...)` 字面量 (文件名原先散落 180 处, 拼错一处即静默丢设置); 只有接收 `Context` 形参的工具函数可以直接 `context.getSharedPreferences(...)`
 - ViewModel 过大时按域拆分为同包扩展文件 (如 `PaintViewModelBrush.kt`), 保持类名不变, 不要为拆分而引入新接口层
@@ -232,7 +232,7 @@ Conventional Commits, **中文描述**, 格式:
 - **机械自检必须全绿**: 运行 `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest`, 验证通过后方可推进
 
 ### 3. 多语言本地化增量补全 (大版本发版门禁)
-- **同步扩展语言**: 检查并对比 `values/strings.xml` 与 `values-en/strings.xml`, 对日语 (`values-ja/strings.xml`)、繁体中文 (`values-zh-rTW/strings.xml`) 与猫猫语 (`values-cat/strings.xml`) 进行全量增量补全, 确保大版本发版时多语言覆盖无缺失
+- **同步扩展语言**: 检查并对比 `values/strings.xml` 与 `values-zh-rCN/strings.xml`, 对日语 (`values-ja/strings.xml`)、繁体中文 (`values-zh-rTW/strings.xml`) 与猫猫语 (`values-cat/strings.xml`) 进行全量增量补全, 确保大版本发版时多语言覆盖无缺失
 
 ### 4. 版本号与更新日志撰写
 - **更新版本配置**: 修改 `app/build.gradle.kts` 中的 `versionCode` 与 `versionName`

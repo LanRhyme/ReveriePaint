@@ -1059,12 +1059,16 @@ internal fun CollabRoomSheet(
                             text = stringResource(R.string.collab_copy_invite),
                             icon = R.drawable.ic_copy,
                             onClick = {
-                                val inviteText = CollabTopologyPolicy.formatInviteText(
-                                    roomCode = collab.roomCode,
-                                    roomTitle = collab.roomTitle,
-                                    hasPassword = collab.roomHasPassword,
-                                    isChinese = LanguageManager.isChinese(),
-                                )
+                                val normalizedCode = CollabTopologyPolicy.normalizeRoomCode(collab.roomCode)
+                                val pwdSuffix = if (collab.roomHasPassword) {
+                                    context.getString(R.string.collab_invite_password_suffix)
+                                } else ""
+                                val cleanTitle = collab.roomTitle.trim()
+                                val inviteText = if (cleanTitle.isNotEmpty()) {
+                                    context.getString(R.string.collab_invite_with_title, cleanTitle, normalizedCode, pwdSuffix)
+                                } else {
+                                    context.getString(R.string.collab_invite_no_title, normalizedCode, pwdSuffix)
+                                }
                                 val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
                                     as? android.content.ClipboardManager
                                 cm?.setPrimaryClip(

@@ -398,7 +398,7 @@ object DiagnosticsManager {
     /**
      * 调用系统分享面板以文件形式分享诊断报告
      */
-    fun shareReport(context: Context, content: String, title: String = "分享诊断日志") {
+    fun shareReport(context: Context, content: String, title: String? = null) {
         try {
             val cacheDir = File(context.cacheDir, "diagnostics").apply { if (!exists()) mkdirs() }
             val fileName = "reverie_diag_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.txt"
@@ -410,11 +410,12 @@ object DiagnosticsManager {
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "ReveriePaint 诊断与运行日志")
+                putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.diagnostics_share_subject))
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            val chooser = Intent.createChooser(intent, title).apply {
+            val chooserTitle = title ?: context.getString(R.string.diagnostics_share_title)
+            val chooser = Intent.createChooser(intent, chooserTitle).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(chooser)

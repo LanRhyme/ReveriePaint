@@ -425,9 +425,11 @@ internal suspend fun PaintViewModel.convertBitmapViaCore(
     ) {
         try {
             if (ReverieCoreBridge.newDocument(bitmap.width, bitmap.height)) {
-                if (!LanguageManager.isChinese() && ReverieCoreBridge.layerCount() >= 2) {
-                    ReverieCoreBridge.setLayerName(0, "Background")
-                    ReverieCoreBridge.setLayerName(1, "Paint Layer 1")
+                val bgName = getString(R.string.layer_default_background)
+                val layer1Name = getString(R.string.layer_default_paint_layer, 1)
+                if (ReverieCoreBridge.layerCount() >= 2) {
+                    ReverieCoreBridge.setLayerName(0, bgName)
+                    ReverieCoreBridge.setLayerName(1, layer1Name)
                 }
                 val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(bitmap)
                 try {
@@ -442,7 +444,7 @@ internal suspend fun PaintViewModel.convertBitmapViaCore(
                     "strokeCount": 0,
                     "elapsedSeconds": 0,
                     "createdTime": ${System.currentTimeMillis()},
-                    "colorMode": "RGB 8位",
+                    "colorMode": "RGB 8-bit",
                     "layerCount": ${ReverieCoreBridge.layerCount()}
                 }
                 """.trimIndent()
@@ -484,7 +486,7 @@ internal suspend fun PaintViewModel.convertViaCore(
                     "strokeCount": 0,
                     "elapsedSeconds": 0,
                     "createdTime": ${System.currentTimeMillis()},
-                    "colorMode": "RGB 8位",
+                    "colorMode": "RGB 8-bit",
                     "layerCount": ${ReverieCoreBridge.layerCount()}
                 }
                 """.trimIndent()

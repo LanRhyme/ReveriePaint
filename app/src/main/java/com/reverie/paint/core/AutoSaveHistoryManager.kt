@@ -5,6 +5,7 @@
 package com.reverie.paint.core
 
 import android.content.Context
+import com.reverie.paint.R
 import com.reverie.paint.model.AutoSaveSnapshot
 import com.reverie.paint.model.AutoSaveSnapshotPolicy
 import org.json.JSONArray
@@ -47,7 +48,7 @@ object AutoSaveHistoryManager {
                         AutoSaveSnapshot(
                             id = id,
                             fileName = fileName,
-                            displayName = obj.optString("displayName", "未命名作品"),
+                            displayName = obj.optString("displayName", context.getString(R.string.project_default_name)),
                             masterPath = obj.optString("masterPath", ""),
                             timestamp = obj.optLong("timestamp", revpFile.lastModified()),
                             strokeCount = obj.optInt("strokeCount", 0),

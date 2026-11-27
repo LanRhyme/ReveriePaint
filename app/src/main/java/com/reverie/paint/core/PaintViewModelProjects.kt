@@ -340,7 +340,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
     val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
     if (touchView?.isInteracting == true || touchView?.isTransformActive == true) return
 
-    val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
+    val name = docName.ifBlank { getString(R.string.project_default_name).ifBlank { "Untitled Artwork" } }
     val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
     val requiredSpace = estimateProjectSaveBytes(
         docWidth,
@@ -560,7 +560,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
 internal fun PaintViewModel.emergencySaveOnCrash() {
     if (currentPage != Page.PAINTING) return
     try {
-        val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
+        val name = docName.ifBlank { getString(R.string.project_default_name).ifBlank { "Untitled Artwork" } }
         val emergencyFile = File(autoSaveDir(), "$name.emergency.revp")
         val masterPath = currentProjectFile?.takeIf { !it.contains(".autosave") && !it.contains(".emergency") } ?: ""
         val layers3DJson = active3DLayers.values.joinToString(",") { st ->
@@ -598,7 +598,7 @@ internal fun PaintViewModel.emergencySaveOnCrash() {
             AutoSaveHistoryManager.recordSnapshot(
                 context = appContext,
                 sourceRevpFile = emergencyFile,
-                displayName = "$name (崩溃抢救)",
+                displayName = getString(R.string.auto_save_emergency_display_name, name),
                 masterPath = masterPath,
                 strokeCount = totalStrokes,
                 layerCount = layers.size,
@@ -639,14 +639,18 @@ internal fun PaintViewModel.restoreAutoSaveSnapshot(snapshot: AutoSaveSnapshot, 
 
     val targetFile: File
     val projectName: String
-    val cleanName = snapshot.displayName.removeSuffix(" (崩溃抢救)").removeSuffix(" (Emergency Rescue)")
+    val localizedEmergencySuffix = " (${getString(R.string.auto_save_badge_emergency)})"
+    val cleanName = snapshot.displayName
+        .removeSuffix(localizedEmergencySuffix)
+        .removeSuffix(" (崩溃抢救)")
+        .removeSuffix(" (Emergency Rescue)")
     if (asCopy) {
         val rootDir = projectDir()
-        var candidateName = "$cleanName (副本)"
+        var candidateName = getString(R.string.project_default_copy_name, cleanName)
         var candidateFile = File(rootDir, "$candidateName.revp")
         var copyIdx = 2
         while (candidateFile.exists()) {
-            candidateName = "$cleanName (副本 $copyIdx)"
+            candidateName = getString(R.string.project_default_copy_name_indexed, cleanName, copyIdx)
             candidateFile = File(rootDir, "$candidateName.revp")
             copyIdx++
         }
@@ -676,7 +680,7 @@ internal fun PaintViewModel.restoreAutoSaveSnapshot(snapshot: AutoSaveSnapshot, 
 }
 
 internal fun PaintViewModel.discardAndExit() {
-    val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
+    val name = docName.ifBlank { getString(R.string.project_default_name).ifBlank { "Untitled Artwork" } }
     // 1. 删除本次会话产生的所有自动保存临时草稿与抢救文件
     val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
     if (autoSaveFile.exists()) {
@@ -1408,7 +1412,6 @@ private fun PaintViewModel.duplicateProjectFiles(
     if (isBlockingLoading) return
     val sources = projects.filter { !it.isFolder }
     if (sources.isEmpty()) return
-    val copySuffix = if (LanguageManager.isChinese()) "副本" else "Copy"
     isBlockingLoading = true
     blockingLoadingMessage = getString(R.string.project_copying_progress, 1, sources.size)
     viewModelScope.launch {
@@ -1424,7 +1427,7 @@ private fun PaintViewModel.duplicateProjectFiles(
                     try {
                         check(source.isFile && source.length() > 0L) { "Source is missing or empty" }
                         val directory = source.parentFile ?: error("Source has no parent directory")
-                        var name = "${project.name} $copySuffix"
+                        var name = getString(R.string.project_default_copy_name, project.name)
                         var counter = 2
                         // Reserve the destination without replacing an existing artwork.
                         while (true) {
@@ -1434,7 +1437,7 @@ private fun PaintViewModel.duplicateProjectFiles(
                                 ownsTarget = true
                                 break
                             }
-                            name = "${project.name} $copySuffix ${counter++}"
+                            name = getString(R.string.project_default_copy_name_indexed, project.name, counter++)
                         }
                         source.inputStream().use { input ->
                             requireNotNull(target).outputStream().use { output -> input.copyTo(output) }
@@ -1496,9 +1499,18 @@ fun shareProjectFile(context: android.content.Context, p: com.reverie.paint.mode
             putExtra(android.content.Intent.EXTRA_STREAM, uri)
             addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(android.content.Intent.createChooser(intent, "分享作品: ${p.name}"))
+        context.startActivity(
+            android.content.Intent.createChooser(
+                intent,
+                context.getString(R.string.project_share_chooser_single, p.name),
+            ),
+        )
     } catch (e: Exception) {
-        android.widget.Toast.makeText(context, "分享失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(
+            context,
+            context.getString(R.string.project_share_failed, e.message.orEmpty()),
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
     }
 }
 
@@ -1529,9 +1541,18 @@ fun shareProjectFiles(context: android.content.Context, projects: List<com.rever
             putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
             addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(android.content.Intent.createChooser(intent, "批量分享 (${uris.size} 个作品)"))
+        context.startActivity(
+            android.content.Intent.createChooser(
+                intent,
+                context.getString(R.string.project_share_chooser_batch, uris.size),
+            ),
+        )
     } catch (e: Exception) {
-        android.widget.Toast.makeText(context, "批量分享失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(
+            context,
+            context.getString(R.string.project_share_batch_failed, e.message.orEmpty()),
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
     }
 }
 
@@ -1550,7 +1571,7 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
     var dpi = 300
     var layerCount = 1
     var selectedLayerIndex = -1
-    var colorModeStr = "RGB 8位"
+    var colorModeStr = "RGB 8-bit"
     var previewPath = ""
     var hasRec = false
     var masterPath = ""
@@ -1573,7 +1594,7 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
                     dpi = json.optInt("dpi", 300)
                     strokes = json.optInt("strokeCount", 0)
                     elapsed = json.optLong("elapsedSeconds", 0L)
-                    colorModeStr = json.optString("colorMode", "RGB 8位")
+                    colorModeStr = json.optString("colorMode", "RGB 8-bit")
                     layerCount = json.optJSONArray("layers")?.length() ?: 1
                     selectedLayerIndex = json.optInt("selectedLayerIndex", json.optInt("activeLayerIndex", json.optInt("currentLayerIndex", -1)))
                     masterPath = json.optString("masterFilePath", "")
@@ -2169,15 +2190,16 @@ internal fun PaintViewModel.generateNextProjectName(): String {
     }
 
     var index = 1
-    val isZh = LanguageManager.isChinese()
-    val candidate = if (isZh) "未命名作品" else "Untitled Artwork"
-    if (!existingNames.contains(candidate.lowercase())) {
-        return candidate
+    val base = getString(R.string.project_default_name).ifBlank { "Untitled Artwork" }
+    if (!existingNames.contains(base.lowercase())) {
+        return base
     }
-    while (existingNames.contains("$candidate $index".lowercase())) {
+    var candidate = getString(R.string.project_default_name_indexed, index)
+    while (existingNames.contains(candidate.lowercase())) {
         index++
+        candidate = getString(R.string.project_default_name_indexed, index)
     }
-    return "$candidate $index"
+    return candidate
 }
 
 internal fun PaintViewModel.startPainting(
@@ -2288,11 +2310,11 @@ internal fun PaintViewModel.startPainting(
                 renderH = h
                 displayBufferInvalid = true
                 mainHandler.post { savedSelections.clear() }
-                if (!LanguageManager.isChinese()) {
-                    if (ReverieCoreBridge.layerCount() >= 2) {
-                        ReverieCoreBridge.setLayerName(0, "Background")
-                        ReverieCoreBridge.setLayerName(1, "Paint Layer 1")
-                    }
+                val bgName = getString(R.string.layer_default_background)
+                val layer1Name = getString(R.string.layer_default_paint_layer, 1)
+                if (ReverieCoreBridge.layerCount() >= 2) {
+                    ReverieCoreBridge.setLayerName(0, bgName)
+                    ReverieCoreBridge.setLayerName(1, layer1Name)
                 }
                 if (initialBitmap != null) {
                     val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(initialBitmap)

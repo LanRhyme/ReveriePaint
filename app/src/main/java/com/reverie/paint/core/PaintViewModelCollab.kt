@@ -795,7 +795,7 @@ private fun PaintViewModel.handleCollabAdmittedOrWelcome(
             val targetH = canvasHeight.takeIf { it > 0 }
                 ?: collab.pendingJoinCanvasH.takeIf { it > 0 }
                 ?: 1200
-            startPainting(w = targetW, h = targetH, name = "Collab-$roomCode")
+            startPainting(w = targetW, h = targetH, name = generateNextCollabProjectName(roomCode))
         }
         if (collab.role == CollabRole.HOST) {
             collab.showRoomSheet = true
@@ -1615,10 +1615,10 @@ internal fun PaintViewModel.discardCollabAndExit() {
 }
 
 internal fun PaintViewModel.generateNextCollabProjectName(roomCode: String): String {
-    val prefix = if (LanguageManager.isChinese()) {
-        if (roomCode.isNotBlank()) "茶绘-$roomCode" else "茶绘作品"
+    val prefix = if (roomCode.isNotBlank()) {
+        getString(R.string.collab_project_name_with_code, roomCode)
     } else {
-        if (roomCode.isNotBlank()) "Collab-$roomCode" else "Collab Artwork"
+        getString(R.string.collab_project_name_default)
     }
     val existingNames = mutableSetOf<String>()
     projectDir().walkTopDown().filter { it.isFile }.forEach { existingNames.add(it.nameWithoutExtension.lowercase()) }

@@ -101,7 +101,7 @@ class PaintViewModel : ViewModel() {
      */
     internal var statsReportedStrokes by mutableIntStateOf(0)
     internal var statsReportedSeconds by mutableLongStateOf(0L)
-    var colorMode by mutableStateOf("RGB 8位 (sRGB)")
+    var colorMode by mutableStateOf("RGB 8-bit (sRGB)")
 
     // Active drawing duration tracking (1-minute idle threshold)
     internal var lastActiveTimeMs = 0L
