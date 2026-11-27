@@ -18,6 +18,52 @@ enum class CollabConnectionPhase {
     ERROR,
 }
 
+/** 房间保存权限策略 (建房后不可修改, 房主与普通成员均需遵守) */
+enum class CollabSavePolicy(val wireValue: String) {
+    /** 默认: 所有成员可随时保存/导出完整协作画布 */
+    ALL("all"),
+
+    /** 仅限本人画作: 房内禁用全画布保存/导出, 仅退房时保留本人图层与公共/背景层 */
+    OWN_ONLY("own_only"),
+    ;
+
+    companion object {
+        fun fromWire(raw: String?): CollabSavePolicy =
+            entries.find { it.wireValue.equals(raw?.trim(), ignoreCase = true) } ?: ALL
+    }
+}
+
+/** 断线/进程回收后的可恢复茶绘会话快照 */
+data class CollabRecoverableSession(
+    val roomCode: String,
+    val peerId: String,
+    val peerName: String,
+    val role: CollabRole,
+    val hostToken: String = "",
+    val peerToken: String = "",
+    val signalingUrl: String = CollabTopologyPolicy.DEFAULT_SIGNALING_URL,
+    val roomTitle: String = "",
+    val isPublic: Boolean = false,
+    val savePolicy: CollabSavePolicy = CollabSavePolicy.ALL,
+    val savedAtMs: Long = 0L,
+)
+
+/** 房间实时可变配置与元信息快照 */
+data class CollabRoomSettingsSnapshot(
+    val isPublic: Boolean = false,
+    val title: String = "",
+    val hasPassword: Boolean = false,
+    val requireApproval: Boolean = false,
+    val maxPeers: Int = 10,
+    val savePolicy: CollabSavePolicy = CollabSavePolicy.ALL,
+)
+
+/** 入房前信息接口中的精简成员项 (用于重连时按 peerId 排除自己避免误判重名) */
+data class CollabPeerSummary(
+    val peerId: String,
+    val name: String,
+)
+
 /** 茶绘房间内角色 */
 enum class CollabRole {
     HOST,
@@ -83,6 +129,8 @@ data class CollabNetworkDiag(
     val tcpNatType: CollabNatType = CollabNatType.UNKNOWN,
     val publicIps: List<String> = emptyList(),
     val natDifficultyLevel: Int = 0, // 0=探测中, 1=简单(直连/Cone), 2=中等(端口受限/规则对称), 3=困难(对称NAT/需中继)
+    val forceRelayMode: Boolean = false,
+    val autoRelayEscalated: Boolean = false,
     val errorMsg: String? = null,
     val peerRoutes: Map<String, CollabPeerRouteDiag> = emptyMap(),
 )
@@ -174,8 +222,10 @@ data class CollabRoomSummary(
     val canvasWidth: Int = 0,
     val canvasHeight: Int = 0,
     val peerNames: List<String> = emptyList(),
+    val peers: List<CollabPeerSummary> = emptyList(),
     val isPublic: Boolean = false,
     val title: String = "",
+    val savePolicy: CollabSavePolicy = CollabSavePolicy.ALL,
 )
 
 /** 在线房间大厅展示的公开房间摘要 */
@@ -187,6 +237,7 @@ data class CollabPublicRoom(
     val maxPeers: Int,
     val hasPassword: Boolean,
     val requireApproval: Boolean,
+    val savePolicy: CollabSavePolicy = CollabSavePolicy.ALL,
     val canvasWidth: Int = 0,
     val canvasHeight: Int = 0,
     val createdAt: Long = 0L,
@@ -235,6 +286,25 @@ object CollabPermissionPolicy {
         ownerPeerId: String,
         selfPeerId: String,
     ): Boolean = isHost || ownerPeerId.isEmpty() || ownerPeerId == selfPeerId
+
+    /** 房内全量保存/导出是否允许 (OWN_ONLY 房间下包括房主在内全部禁用, 仅允许退房时保存过滤后的本人图层) */
+    fun isFullSaveAllowedInCollab(
+        inCollab: Boolean,
+        savePolicy: CollabSavePolicy,
+    ): Boolean = !inCollab || savePolicy != CollabSavePolicy.OWN_ONLY
+
+    /** OWN_ONLY 退房裁剪规则: 保留背景层、公共层(SHARED)、以及本人专属/未认领层; 剔除他人专属/锁定层 */
+    fun shouldKeepLayerOnOwnOnlyExit(
+        isBackground: Boolean,
+        ownerPeerId: String,
+        permissionCode: Int,
+        selfPeerId: String,
+    ): Boolean {
+        if (isBackground) return true
+        if (LayerCollabPermission.fromCode(permissionCode) == LayerCollabPermission.SHARED) return true
+        if (ownerPeerId.isEmpty()) return true
+        return selfPeerId.isNotEmpty() && ownerPeerId == selfPeerId
+    }
 
     /** 协同模式下仅房主可修改画布背景色或背景层显隐 */
     fun canEditBackground(
@@ -435,6 +505,33 @@ object CollabTopologyPolicy {
 
     fun hasDuplicateNickname(candidate: String, existingNames: Collection<String>): Boolean =
         existingNames.any { isSameNickname(candidate, it) }
+
+    fun hasDuplicateNicknameExcludingSelf(
+        candidate: String,
+        summary: CollabRoomSummary,
+        selfPeerId: String,
+    ): Boolean {
+        val otherNames = if (summary.peers.isNotEmpty()) {
+            buildList {
+                if (summary.hostName.isNotBlank() && summary.hostPeerId != selfPeerId) {
+                    add(summary.hostName)
+                }
+                summary.peers.forEach { peer ->
+                    if (peer.peerId != selfPeerId && peer.name.isNotBlank()) {
+                        add(peer.name)
+                    }
+                }
+            }
+        } else {
+            buildList {
+                if (summary.hostName.isNotBlank() && summary.hostPeerId != selfPeerId) {
+                    add(summary.hostName)
+                }
+                addAll(summary.peerNames)
+            }
+        }
+        return hasDuplicateNickname(candidate, otherNames)
+    }
 
     fun sanitizeRoomTitle(raw: String): String =
         raw.replace(Regex("[\\r\\n\\t]+"), " ").trim().take(MAX_ROOM_TITLE_LENGTH)

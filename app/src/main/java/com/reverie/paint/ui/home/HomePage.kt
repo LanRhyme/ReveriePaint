@@ -114,6 +114,10 @@ fun HomePage(vm: PaintViewModel) {
     var isSelectMode by remember { mutableStateOf(false) }
     val selectedProjects = remember { mutableStateListOf<Project>() }
 
+    LaunchedEffect(Unit) {
+        vm.ensureCollabPrefsLoaded()
+    }
+
     // Dialogs
     var showNewFolderDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
@@ -820,6 +824,12 @@ fun HomePage(vm: PaintViewModel) {
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
 
+                        // 断线/强杀后仍活跃的茶绘房间恢复条
+                        com.reverie.paint.ui.painting.collab.CollabSessionRecoveryBanner(
+                            vm = vm,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+
                         val density = LocalDensity.current
                         val config = LocalConfiguration.current
                         val screenWPx = with(density) { config.screenWidthDp.dp.toPx() }
@@ -1439,6 +1449,15 @@ fun HomePage(vm: PaintViewModel) {
                                                     },
                                                 )
                                                 if (!p.isFolder) {
+                                                    HomeDropdownMenuItem(
+                                                        text = stringResource(R.string.collab_project_menu_host),
+                                                        icon = R.drawable.ic_cloud,
+                                                        onClick = {
+                                                            longPressedProject = null
+                                                            vm.collab.preselectedCreateProject = p
+                                                            vm.collab.showLobbyDialog = true
+                                                        },
+                                                    )
                                                     HomeDropdownMenuItem(
                                                         text = stringResource(R.string.gallery_action_replay),
                                                         icon = R.drawable.ic_play,

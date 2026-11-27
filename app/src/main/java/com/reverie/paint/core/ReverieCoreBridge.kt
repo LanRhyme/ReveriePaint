@@ -1586,6 +1586,7 @@ object ReverieCoreBridge {
     )
 
     external fun collabRetryPeer(peerId: String)
+    external fun collabPruneNonOwnLayersForExit(selfPeerId: String): Boolean
     external fun setProjectCollabMeta(isCollab: Boolean, roomCode: String)
     external fun isCollabProject(): Boolean
     external fun collabProjectRoomCode(): String

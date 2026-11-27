@@ -17,6 +17,7 @@ import {
   parseStunV6Servers,
   randomTokenHex,
   sanitizeName,
+  sanitizeSavePolicy,
   sanitizeTitle,
   sha256Hex,
   timingSafeEqualStr,
@@ -27,8 +28,8 @@ const HOST_CLAIM_GRACE_MS = 5000;
 // 房主断线后的重新认领窗口: 窗口内凭 peerId 即可换发新 hostToken,
 // 覆盖"客户端进程被杀/交接消息丢失导致本地没有 token"的场景, 窗口外仍需正确 token
 const HOST_RECLAIM_WINDOW_MS = 60000;
-// 异常掉线(未发 leave) 的成员超过该时长后惰性清理, 释放昵称与虚拟 IP 占位
-const DEFAULT_GHOST_PEER_TTL_MS = 10 * 60_000;
+// 异常掉线(未发 leave) 的成员超过该时长后惰性清理昵称占位与虚拟 IP 占用 (默认 30 分钟)
+const DEFAULT_GHOST_PEER_TTL_MS = 30 * 60_000;
 // 房间存活上限: 有活跃连接时按活动顺延, 最多 7 天
 const MAX_ROOM_TTL_MS = 7 * 86400000;
 
@@ -90,9 +91,11 @@ export class CollabRoom extends DurableObject {
     if (isPublic && !title) {
       throw new HttpError(400, 'room_title_required', 'public room requires a title');
     }
+    const savePolicy = sanitizeSavePolicy(body.savePolicy);
     const password = typeof body.password === 'string' ? body.password : '';
     const passwordHash = password.length > 0 ? await sha256Hex(password) : '';
     const hostToken = randomTokenHex(24);
+    const hostPeerToken = randomTokenHex(16);
     const hostName = sanitizeName(body.hostName, 'Host');
     const canvasMeta = body.canvasMeta && typeof body.canvasMeta === 'object' ? body.canvasMeta : null;
     const meshSubnetByte = deriveMeshSubnetByte(roomCode);
@@ -109,7 +112,8 @@ export class CollabRoom extends DurableObject {
       requireApproval,
       maxPeers,
       isPublic,
-      title: isPublic ? title : '',
+      title,
+      savePolicy,
       canvasMeta,
       meshNetwork: `rvp-${roomCode}`,
       meshSecret,
@@ -122,6 +126,15 @@ export class CollabRoom extends DurableObject {
           joinedAt: now,
           disconnectedAt: 0,
           virtualIp: hostVirtualIp,
+          token: hostPeerToken,
+        },
+      },
+      knownPeers: {
+        [hostPeerId]: {
+          name: hostName,
+          joinedAt: now,
+          virtualIp: hostVirtualIp,
+          token: hostPeerToken,
         },
       },
       kickedPeers: [],
@@ -156,6 +169,7 @@ export class CollabRoom extends DurableObject {
       maxPeers,
       isPublic,
       title: meta.title,
+      savePolicy,
       expiresInMs: roomTtlMs,
       iceServers,
       easyTier,
@@ -178,8 +192,10 @@ export class CollabRoom extends DurableObject {
       maxPeers: meta.maxPeers,
       isPublic: Boolean(meta.isPublic),
       title: meta.title || '',
+      savePolicy: sanitizeSavePolicy(meta.savePolicy),
       peerCount: peers.length,
       peerNames: peers.map((p) => p.name),
+      peers: peers.map((p) => ({ peerId: p.peerId, name: p.name })),
       canvasMeta: meta.canvasMeta,
       expiresAt: meta.expiresAt,
     });
@@ -207,6 +223,7 @@ export class CollabRoom extends DurableObject {
     }
 
     const token = String(url.searchParams.get('token') || '');
+    const providedPeerToken = String(url.searchParams.get('pt') || '');
     const now = Date.now();
     // 房主退房时若接任者恰好离线, 服务端先记账; 该成员以 peer 身份重连时直接补发房主凭据
     const pendingHostAuth = roleParam !== 'host' && meta.pendingHostAuthPeerId === peerId;
@@ -230,14 +247,6 @@ export class CollabRoom extends DurableObject {
     }
     const becomesHost = isHost || pendingHostAuth || reclaimHost;
 
-    if (!becomesHost && meta.passwordHash.length > 0) {
-      const providedPw = String(url.searchParams.get('pw') || '');
-      const providedHash = providedPw.length > 0 ? await sha256Hex(providedPw) : '';
-      if (!timingSafeEqualStr(providedHash, meta.passwordHash)) {
-        throw new HttpError(403, 'invalid_password', 'wrong room password');
-      }
-    }
-
     if (!becomesHost && Array.isArray(meta.kickedPeers) && meta.kickedPeers.includes(peerId)) {
       throw new HttpError(403, 'kicked', 'removed from room by host');
     }
@@ -250,7 +259,20 @@ export class CollabRoom extends DurableObject {
 
     const admittedPeers = this.listAdmittedPeers();
     const prevAdmitted = meta.admittedPeers && meta.admittedPeers[peerId];
+    const knownRecord = meta.knownPeers && meta.knownPeers[peerId];
+    const savedPeerToken = prevAdmitted?.token || knownRecord?.token || '';
+    const hasValidPeerToken = Boolean(savedPeerToken) && timingSafeEqualStr(providedPeerToken, savedPeerToken);
+
+    if (!becomesHost && !hasValidPeerToken && meta.passwordHash.length > 0) {
+      const providedPw = String(url.searchParams.get('pw') || '');
+      const providedHash = providedPw.length > 0 ? await sha256Hex(providedPw) : '';
+      if (!timingSafeEqualStr(providedHash, meta.passwordHash)) {
+        throw new HttpError(403, 'invalid_password', 'wrong room password');
+      }
+    }
+
     const alreadyAdmitted = Boolean(prevAdmitted) ||
+      hasValidPeerToken ||
       existingForPeer.some((s) => s.deserializeAttachment()?.status === 'admitted');
     if (!becomesHost && !alreadyAdmitted && admittedPeers.length >= meta.maxPeers) {
       throw new HttpError(409, 'room_full', 'room reached maxPeers');
@@ -273,7 +295,7 @@ export class CollabRoom extends DurableObject {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     const status = becomesHost || !meta.requireApproval || alreadyAdmitted ? 'admitted' : 'pending';
-    const joinedAt = prevAdmitted?.joinedAt || now;
+    const joinedAt = prevAdmitted?.joinedAt || knownRecord?.joinedAt || now;
 
     this.ctx.acceptWebSocket(server, [peerId]);
     server.serializeAttachment({
@@ -289,7 +311,11 @@ export class CollabRoom extends DurableObject {
     if (!meta.admittedPeers || typeof meta.admittedPeers !== 'object') {
       meta.admittedPeers = {};
     }
+    if (!meta.knownPeers || typeof meta.knownPeers !== 'object') {
+      meta.knownPeers = {};
+    }
     let peerVirtualIp = '';
+    let issuedPeerToken = savedPeerToken || randomTokenHex(16);
     if (status === 'admitted') {
       peerVirtualIp = this.ensurePeerVirtualIp(meta, peerId);
       meta.admittedPeers[peerId] = {
@@ -297,6 +323,13 @@ export class CollabRoom extends DurableObject {
         joinedAt,
         disconnectedAt: 0,
         virtualIp: peerVirtualIp,
+        token: issuedPeerToken,
+      };
+      meta.knownPeers[peerId] = {
+        name,
+        joinedAt,
+        virtualIp: peerVirtualIp,
+        token: issuedPeerToken,
       };
     }
     if (becomesHost) {
@@ -314,6 +347,14 @@ export class CollabRoom extends DurableObject {
     }
 
     const iceServers = await buildIceServers(this.env, peerId);
+    const roomInfoPayload = {
+      isPublic: Boolean(meta.isPublic),
+      title: meta.title || '',
+      hasPassword: Boolean(meta.passwordHash),
+      requireApproval: Boolean(meta.requireApproval),
+      maxPeers: meta.maxPeers,
+      savePolicy: sanitizeSavePolicy(meta.savePolicy),
+    };
     if (status === 'admitted') {
       const currentAdmitted = this.listAdmittedPeers(null, meta);
       this.sendJson(server, {
@@ -322,10 +363,12 @@ export class CollabRoom extends DurableObject {
         selfPeerId: peerId,
         hostPeerId: meta.hostPeerId,
         status: 'admitted',
+        peerToken: issuedPeerToken,
         iceServers,
         easyTier: this.buildEasyTierPayload(meta, peerId),
         peers: currentAdmitted,
         canvasMeta: meta.canvasMeta,
+        ...roomInfoPayload,
       });
 
       if (pendingHostAuth || reclaimHost) {
@@ -468,12 +511,24 @@ export class CollabRoom extends DurableObject {
           if (!meta.admittedPeers || typeof meta.admittedPeers !== 'object') {
             meta.admittedPeers = {};
           }
+          if (!meta.knownPeers || typeof meta.knownPeers !== 'object') {
+            meta.knownPeers = {};
+          }
           const targetVirtualIp = this.ensurePeerVirtualIp(meta, targetAtt.peerId);
+          const issuedPeerToken =
+            meta.knownPeers[targetAtt.peerId]?.token || randomTokenHex(16);
           meta.admittedPeers[targetAtt.peerId] = {
             name: targetAtt.name,
             joinedAt: targetAtt.joinedAt,
             disconnectedAt: 0,
             virtualIp: targetVirtualIp,
+            token: issuedPeerToken,
+          };
+          meta.knownPeers[targetAtt.peerId] = {
+            name: targetAtt.name,
+            joinedAt: targetAtt.joinedAt,
+            virtualIp: targetVirtualIp,
+            token: issuedPeerToken,
           };
           const iceServers = await buildIceServers(this.env, targetAtt.peerId);
           this.sendJson(targetWs, {
@@ -481,10 +536,17 @@ export class CollabRoom extends DurableObject {
             roomCode: meta.roomCode,
             selfPeerId: targetAtt.peerId,
             hostPeerId: meta.hostPeerId,
+            peerToken: issuedPeerToken,
             iceServers,
             easyTier: this.buildEasyTierPayload(meta, targetAtt.peerId),
             peers: this.listAdmittedPeers(null, meta),
             canvasMeta: meta.canvasMeta,
+            isPublic: Boolean(meta.isPublic),
+            title: meta.title || '',
+            hasPassword: Boolean(meta.passwordHash),
+            requireApproval: Boolean(meta.requireApproval),
+            maxPeers: meta.maxPeers,
+            savePolicy: sanitizeSavePolicy(meta.savePolicy),
           });
           this.broadcastAdmitted(
             {
@@ -521,6 +583,9 @@ export class CollabRoom extends DurableObject {
         if (!targetId || targetId === meta.hostPeerId) return;
         if (meta.admittedPeers && meta.admittedPeers[targetId]) {
           delete meta.admittedPeers[targetId];
+        }
+        if (meta.knownPeers && meta.knownPeers[targetId]) {
+          delete meta.knownPeers[targetId];
         }
         if (!Array.isArray(meta.kickedPeers)) meta.kickedPeers = [];
         if (!meta.kickedPeers.includes(targetId)) {
@@ -589,6 +654,9 @@ export class CollabRoom extends DurableObject {
         if (meta.admittedPeers && meta.admittedPeers[sender.peerId]) {
           delete meta.admittedPeers[sender.peerId];
         }
+        if (meta.knownPeers && meta.knownPeers[sender.peerId]) {
+          delete meta.knownPeers[sender.peerId];
+        }
         ws.serializeAttachment({ ...sender, replaced: true });
         if (sender.peerId === meta.hostPeerId) {
           const candidate = this.earliestAdmittedPeer(meta.hostPeerId);
@@ -644,6 +712,58 @@ export class CollabRoom extends DurableObject {
         try {
           ws.close(1000, 'left');
         } catch {}
+        return;
+      }
+
+      case 'update_room': {
+        if (sender.peerId !== meta.hostPeerId) {
+          this.sendJson(ws, { type: 'error', code: 'host_only' });
+          return;
+        }
+        const nextIsPublic =
+          typeof msg.isPublic === 'boolean' ? msg.isPublic : Boolean(meta.isPublic);
+        const nextTitle =
+          typeof msg.title === 'string' ? sanitizeTitle(msg.title) : sanitizeTitle(meta.title);
+        if (nextIsPublic && !nextTitle) {
+          this.sendJson(ws, {
+            type: 'error',
+            code: 'room_title_required',
+            message: 'public room requires a title',
+          });
+          return;
+        }
+        const nextRequireApproval =
+          typeof msg.requireApproval === 'boolean'
+            ? msg.requireApproval
+            : Boolean(meta.requireApproval);
+        const nextMaxPeers =
+          msg.maxPeers !== undefined
+            ? parsePositiveInt(msg.maxPeers, meta.maxPeers, 2, MAX_ROOM_CONNECTIONS)
+            : meta.maxPeers;
+        if (typeof msg.password === 'string') {
+          meta.passwordHash = msg.password.length > 0 ? await sha256Hex(msg.password) : '';
+        }
+        // savePolicy 创建后不可修改, 忽略任何来自 update_room 的修改请求
+        meta.isPublic = nextIsPublic;
+        meta.title = nextTitle;
+        meta.requireApproval = nextRequireApproval;
+        meta.maxPeers = nextMaxPeers;
+        meta.lastActiveAt = Date.now();
+        this.extendRoomTtl(meta, meta.lastActiveAt);
+        await this.ctx.storage.put(STORAGE_ROOM_KEY, meta);
+        this.directoryFingerprint = '';
+        await this.syncDirectory(meta);
+
+        this.broadcastAdmitted({
+          type: 'room_updated',
+          roomCode: meta.roomCode,
+          isPublic: Boolean(meta.isPublic),
+          title: meta.title || '',
+          hasPassword: Boolean(meta.passwordHash),
+          requireApproval: Boolean(meta.requireApproval),
+          maxPeers: meta.maxPeers,
+          savePolicy: sanitizeSavePolicy(meta.savePolicy),
+        });
         return;
       }
 
@@ -873,6 +993,7 @@ export class CollabRoom extends DurableObject {
       const expiresAt = expiresAtOverride || meta.expiresAt;
       const canvasWidth = Number(meta.canvasMeta?.width) || 0;
       const canvasHeight = Number(meta.canvasMeta?.height) || 0;
+      const savePolicy = sanitizeSavePolicy(meta.savePolicy);
       // 大厅目录节流: 仅当展示字段真正变化或过期时间跨过 5 分钟桶时才写库,
       // 避免每次心跳/信令都触发一次 DELETE + INSERT
       const fingerprint = [
@@ -882,6 +1003,7 @@ export class CollabRoom extends DurableObject {
         meta.maxPeers,
         meta.passwordHash ? 1 : 0,
         meta.requireApproval ? 1 : 0,
+        savePolicy,
         canvasWidth,
         canvasHeight,
         Math.floor(expiresAt / 300000),
@@ -899,6 +1021,7 @@ export class CollabRoom extends DurableObject {
           maxPeers: meta.maxPeers,
           hasPassword: Boolean(meta.passwordHash),
           requireApproval: Boolean(meta.requireApproval),
+          savePolicy,
           canvasWidth,
           canvasHeight,
           createdAt: meta.createdAt,
@@ -938,6 +1061,10 @@ export class CollabRoom extends DurableObject {
     const used = new Set();
     for (const info of Object.values(meta.admittedPeers)) {
       if (info && info.virtualIp) used.add(info.virtualIp);
+    }
+    const prevKnownIp = meta.knownPeers?.[peerId]?.virtualIp;
+    if (prevKnownIp && !used.has(prevKnownIp)) {
+      return prevKnownIp;
     }
     let octet = meta.nextIpOctet;
     for (let i = 0; i < 240; i += 1) {

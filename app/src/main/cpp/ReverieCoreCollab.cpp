@@ -184,6 +184,7 @@ struct EasyTierTransportConfig {
     QStringList stunServersV6;
     bool enableKcpProxy = true;
     bool latencyFirst = true;
+    bool forceRelay = false;
 };
 
 struct PeerLink {
@@ -306,14 +307,18 @@ EasyTierTransportConfig parseEasyTierConfig(const QString &jsonStr,
         cfg.networkSecret = obj.value(QStringLiteral("networkSecret")).toString();
         cfg.selfVirtualIp = obj.value(QStringLiteral("selfVirtualIp")).toString();
         cfg.hostVirtualIp = obj.value(QStringLiteral("hostVirtualIp")).toString();
-        cfg.hostMeshPort = obj.value(QStringLiteral("hostMeshPort")).toInt(39500);
-        cfg.enableKcpProxy = obj.value(QStringLiteral("enableKcpProxy")).toBool(true);
-        cfg.latencyFirst = obj.value(QStringLiteral("latencyFirst")).toBool(true);
+        const int fallbackPort = obj.value(QStringLiteral("meshPort")).toInt(39500);
+        cfg.hostMeshPort = obj.value(QStringLiteral("hostMeshPort")).toInt(fallbackPort);
+        cfg.forceRelay = obj.value(QStringLiteral("forceRelay")).toBool(false);
+        cfg.enableKcpProxy = cfg.forceRelay ? false : obj.value(QStringLiteral("enableKcpProxy")).toBool(true);
+        cfg.latencyFirst = cfg.forceRelay ? false : obj.value(QStringLiteral("latencyFirst")).toBool(true);
 
         const QJsonArray relays = obj.value(QStringLiteral("relayPeers")).toArray();
         for (const QJsonValue &v : relays) {
             const QString u = v.toString().trimmed();
-            if (!u.isEmpty() && !cfg.relayPeers.contains(u)) cfg.relayPeers.append(u);
+            if (u.isEmpty()) continue;
+            if (cfg.forceRelay && u.startsWith(QLatin1String("udp://"), Qt::CaseInsensitive)) continue;
+            if (!cfg.relayPeers.contains(u)) cfg.relayPeers.append(u);
         }
         const QJsonArray stuns = obj.value(QStringLiteral("stunServers")).toArray();
         for (const QJsonValue &v : stuns) {
@@ -650,6 +655,10 @@ public:
         m_stopNetRequested = false;
         m_needRestartEasyTier = true;
         m_nextDialMs = 0;
+        m_dialRetryCount = 0;
+        m_consecutiveDialFailures = 0;
+        m_selfNatDifficulty = 0;
+        m_autoRelayEscalated = false;
         m_addedRemoteEndpoints.clear();
         m_pendingRemoteEndpoints.clear();
         m_lastBroadcastEndpoints.clear();
@@ -839,6 +848,7 @@ public:
             const QJsonArray uris = obj.value(QStringLiteral("uris")).toArray();
             if (uris.isEmpty()) return;
             std::lock_guard<std::mutex> lock(m_netMutex);
+            if (m_etConfig.forceRelay) return;
             for (const QJsonValue &v : uris) {
                 const QString u = v.toString().trimmed();
                 if (!u.isEmpty() && !m_addedRemoteEndpoints.contains(u) &&
@@ -847,6 +857,22 @@ public:
                 }
             }
             wakeNetThread();
+        } else if (kind == QLatin1String("et_host_port")) {
+            const int port = obj.value(QStringLiteral("port")).toInt(0);
+            if (!m_isHost && fromPeerId == m_hostPeerId && port > 1024 && port <= 65535) {
+                bool changed = false;
+                {
+                    std::lock_guard<std::mutex> lock(m_netMutex);
+                    if (m_etConfig.hostMeshPort != port) {
+                        m_etConfig.hostMeshPort = port;
+                        m_needRestartEasyTier = true;
+                        m_dialRetryCount = 0;
+                        m_nextDialMs = 0;
+                        changed = true;
+                    }
+                }
+                if (changed) wakeNetThread();
+            }
         }
     }
 
@@ -1385,16 +1411,23 @@ public:
             transportConfigJson != QLatin1String("{}")) {
             if (m_transportConfigJson != transportConfigJson) {
                 m_transportConfigJson = transportConfigJson;
-                const EasyTierTransportConfig parsed = parseEasyTierConfig(
+                EasyTierTransportConfig parsed = parseEasyTierConfig(
                     transportConfigJson, m_roomCode, m_selfPeerId,
                     newHostPeerId.isEmpty() ? m_hostPeerId : newHostPeerId);
                 std::lock_guard<std::mutex> lock(m_netMutex);
+                if (m_autoRelayEscalated && !parsed.forceRelay) {
+                    parsed.forceRelay = true;
+                    parsed.enableKcpProxy = false;
+                    parsed.latencyFirst = false;
+                }
                 if (parsed.networkName != m_etConfig.networkName ||
                     parsed.networkSecret != m_etConfig.networkSecret ||
                     parsed.selfVirtualIp != m_etConfig.selfVirtualIp ||
                     parsed.hostVirtualIp != m_etConfig.hostVirtualIp ||
                     parsed.hostMeshPort != m_etConfig.hostMeshPort ||
-                    parsed.relayPeers != m_etConfig.relayPeers) {
+                    parsed.relayPeers != m_etConfig.relayPeers ||
+                    parsed.enableKcpProxy != m_etConfig.enableKcpProxy ||
+                    parsed.forceRelay != m_etConfig.forceRelay) {
                     m_etConfig = parsed;
                     m_needRestartEasyTier = true;
                     configChanged = true;
@@ -1697,6 +1730,9 @@ private:
     int m_localForwardPort = 0;
     int m_actualHostMeshPort = 0;
     int m_dialRetryCount = 0;
+    int m_consecutiveDialFailures = 0;
+    int m_selfNatDifficulty = 0;
+    bool m_autoRelayEscalated = false;
     qint64 m_nextDialMs = 0;
     QStringList m_pendingRemoteEndpoints;
     QSet<QString> m_addedRemoteEndpoints;
@@ -1829,6 +1865,7 @@ private:
 
         for (const QString &relay : cfg.relayPeers) {
             if (relay.isEmpty()) continue;
+            if (cfg.forceRelay && relay.startsWith(QLatin1String("udp://"), Qt::CaseInsensitive)) continue;
             toml += QStringLiteral("\n[[peer]]\nuri = \"%1\"\n").arg(tomlEscape(relay));
         }
 
@@ -1839,16 +1876,18 @@ private:
             toml += QStringLiteral("proto = \"tcp\"\n");
         }
 
+        const bool effKcp = cfg.forceRelay ? false : cfg.enableKcpProxy;
+        const bool effLatency = cfg.forceRelay ? false : cfg.latencyFirst;
         toml += QStringLiteral("\n[flags]\n");
         toml += QStringLiteral("no_tun = true\n");
         toml += QStringLiteral("bind_device = false\n");
         toml += QStringLiteral("use_smoltcp = true\n");
-        toml += QStringLiteral("enable_kcp_proxy = %1\n").arg(cfg.enableKcpProxy ? QStringLiteral("true") : QStringLiteral("false"));
-        toml += QStringLiteral("latency_first = %1\n").arg(cfg.latencyFirst ? QStringLiteral("true") : QStringLiteral("false"));
+        toml += QStringLiteral("enable_kcp_proxy = %1\n").arg(effKcp ? QStringLiteral("true") : QStringLiteral("false"));
+        toml += QStringLiteral("latency_first = %1\n").arg(effLatency ? QStringLiteral("true") : QStringLiteral("false"));
         toml += QStringLiteral("multi_thread = true\n");
         toml += QStringLiteral("multi_thread_count = 2\n");
-        toml += QStringLiteral("enable_ipv6 = true\n");
-        toml += QStringLiteral("disable_p2p = false\n");
+        toml += QStringLiteral("enable_ipv6 = %1\n").arg(cfg.forceRelay ? QStringLiteral("false") : QStringLiteral("true"));
+        toml += QStringLiteral("disable_p2p = %1\n").arg(cfg.forceRelay ? QStringLiteral("true") : QStringLiteral("false"));
         return toml;
     }
 
@@ -2070,8 +2109,12 @@ private:
         const QJsonObject myInfo = root.value(QStringLiteral("my_node_info")).toObject();
         const QJsonObject myStun = myInfo.value(QStringLiteral("stun_info")).toObject();
 
-        const QString udpNat = natTypeToString(natValToInt(myStun.value(QStringLiteral("udp_nat_type"))));
+        const int udpNatInt = natValToInt(myStun.value(QStringLiteral("udp_nat_type")));
+        const QString udpNat = natTypeToString(udpNatInt);
         const QString tcpNat = natTypeToString(natValToInt(myStun.value(QStringLiteral("tcp_nat_type"))));
+        const int natDifficulty = (udpNatInt >= 1 && udpNatInt <= 4) ? 1
+            : ((udpNatInt == 5 || udpNatInt == 8 || udpNatInt == 9) ? 2
+            : ((udpNatInt == 6 || udpNatInt == 7) ? 3 : 0));
         const QString myVip = formatVirtualIpv4(myInfo.value(QStringLiteral("virtual_ipv4")));
 
         QJsonArray publicIps;
@@ -2193,9 +2236,12 @@ private:
         }
 
         EasyTierTransportConfig cfgCopy;
+        bool autoEscalated = false;
         {
             std::lock_guard<std::mutex> lock(m_netMutex);
+            m_selfNatDifficulty = natDifficulty;
             cfgCopy = m_etConfig;
+            autoEscalated = m_autoRelayEscalated;
         }
         QJsonObject statusObj;
         statusObj.insert(QStringLiteral("ready"), running);
@@ -2204,6 +2250,8 @@ private:
         statusObj.insert(QStringLiteral("hostVirtualIp"), cfgCopy.hostVirtualIp);
         statusObj.insert(QStringLiteral("udpNatType"), udpNat);
         statusObj.insert(QStringLiteral("tcpNatType"), tcpNat);
+        statusObj.insert(QStringLiteral("forceRelay"), cfgCopy.forceRelay);
+        statusObj.insert(QStringLiteral("autoRelayEscalated"), autoEscalated);
         statusObj.insert(QStringLiteral("publicIps"), publicIps);
         statusObj.insert(QStringLiteral("error"), errMsg);
         statusObj.insert(QStringLiteral("peers"), peersOut);
@@ -2319,8 +2367,14 @@ private:
                                 cfgCopy.hostMeshPort, errno);
                     } else if (m_actualHostMeshPort > 0 && m_actualHostMeshPort != cfgCopy.hostMeshPort) {
                         cfgCopy.hostMeshPort = m_actualHostMeshPort;
-                        std::lock_guard<std::mutex> lock(m_netMutex);
-                        m_etConfig.hostMeshPort = m_actualHostMeshPort;
+                        {
+                            std::lock_guard<std::mutex> lock(m_netMutex);
+                            m_etConfig.hostMeshPort = m_actualHostMeshPort;
+                        }
+                        pushUiEvent(QJsonObject{
+                            {QStringLiteral("type"), QStringLiteral("host_mesh_port")},
+                            {QStringLiteral("port"), m_actualHostMeshPort},
+                        });
                     }
                     m_localForwardPort = 0;
                 } else {
@@ -2333,12 +2387,13 @@ private:
                 if (rc == 0) {
                     etStarted = true;
                     lastEtErr.clear();
-                    RPC_LOG("EasyTier started inst=%s vip=%s host=%d fwdPort=%d meshPort=%d",
+                    RPC_LOG("EasyTier started inst=%s vip=%s host=%d fwdPort=%d meshPort=%d forceRelay=%d",
                             kEasyTierInstanceName,
                             cfgCopy.selfVirtualIp.toUtf8().constData(),
                             isHostCopy ? 1 : 0,
                             m_localForwardPort,
-                            cfgCopy.hostMeshPort);
+                            cfgCopy.hostMeshPort,
+                            cfgCopy.forceRelay ? 1 : 0);
                 } else {
                     lastEtErr = api.lastErrorMessage();
                     RPC_LOG("EasyTier run_network_instance failed: %s", lastEtErr.toUtf8().constData());
@@ -2351,7 +2406,7 @@ private:
                 lastInfoPollMs = QDateTime::currentMSecsSinceEpoch();
             }
 
-            if (etStarted && !endpointsToAdd.isEmpty() && api.callJsonRpc) {
+            if (etStarted && !cfgCopy.forceRelay && !endpointsToAdd.isEmpty() && api.callJsonRpc) {
                 QJsonArray connectors;
                 for (const QString &u : endpointsToAdd) {
                     if (m_addedRemoteEndpoints.contains(u)) continue;
@@ -2387,6 +2442,37 @@ private:
 
             const qint64 now = QDateTime::currentMSecsSinceEpoch();
 
+            auto maybeEscalateRelayLocked = [&](bool isHostSide) -> bool {
+                m_consecutiveDialFailures++;
+                const int escalateThreshold = (m_selfNatDifficulty >= 3) ? 1 : 2;
+                if (isHostSide || m_etConfig.forceRelay || m_autoRelayEscalated ||
+                    m_consecutiveDialFailures < escalateThreshold) {
+                    return false;
+                }
+                m_autoRelayEscalated = true;
+                m_etConfig.forceRelay = true;
+                m_etConfig.enableKcpProxy = false;
+                m_etConfig.latencyFirst = false;
+                QStringList tcpRelays;
+                for (const QString &r : m_etConfig.relayPeers) {
+                    if (!r.startsWith(QLatin1String("udp://"), Qt::CaseInsensitive) &&
+                        !tcpRelays.contains(r)) {
+                        tcpRelays.append(r);
+                    }
+                }
+                const QString backupRelay = QStringLiteral("tcp://public.easytier.top:11010");
+                if (!tcpRelays.contains(backupRelay)) {
+                    tcpRelays.append(backupRelay);
+                }
+                m_etConfig.relayPeers = tcpRelays;
+                m_needRestartEasyTier = true;
+                m_dialRetryCount = 0;
+                m_nextDialMs = 0;
+                m_consecutiveDialFailures = 0;
+                RPC_LOG("Collab auto-escalated to forced TCP relay (natDiff=%d)", m_selfNatDifficulty);
+                return true;
+            };
+
             // Peer 主动向本地 port_forward 端口拨号连往 Host
             if (etStarted && !isHostCopy && m_localForwardPort > 0 && !hostPeerCopy.isEmpty()) {
                 bool needDial = false;
@@ -2412,7 +2498,7 @@ private:
                             conn.connecting = (crc != 0);
                             conn.handshakeDone = false;
                             conn.connectStartedMs = now;
-                            conn.handshakeDeadlineMs = now + 15000;
+                            conn.handshakeDeadlineMs = now + 7000;
                             if (!conn.connecting) {
                                 enqueueFrameToConn(conn, buildHelloPacket(false), true);
                             }
@@ -2420,8 +2506,19 @@ private:
                             m_peerConns.insert(hostPeerCopy, std::move(conn));
                         } else {
                             close(sfd);
-                            m_dialRetryCount++;
-                            m_nextDialMs = now + qMin<qint64>(3000, 400LL * m_dialRetryCount);
+                            bool escalated = false;
+                            {
+                                std::lock_guard<std::mutex> lock(m_netMutex);
+                                m_dialRetryCount++;
+                                m_nextDialMs = now + qMin<qint64>(3000, 400LL * m_dialRetryCount);
+                                escalated = maybeEscalateRelayLocked(isHostCopy);
+                            }
+                            if (escalated) {
+                                pushUiEvent(QJsonObject{
+                                    {QStringLiteral("type"), QStringLiteral("transport_fallback")},
+                                    {QStringLiteral("mode"), QStringLiteral("relay")},
+                                });
+                            }
                         }
                     }
                 }
@@ -2546,6 +2643,7 @@ private:
                         bool dropConn = false;
                         bool emitConnected = false;
                         bool emitDisconnected = false;
+                        bool escalated = false;
                         std::vector<QByteArray> frames;
 
                         {
@@ -2586,6 +2684,7 @@ private:
                                     link.ctrlOpenedAtMs = afterPollMs;
                                     link.lastSnapshotReqAtMs = afterPollMs;
                                     m_dialRetryCount = 0;
+                                    m_consecutiveDialFailures = 0;
                                     emitConnected = true;
                                 }
                             }
@@ -2593,6 +2692,7 @@ private:
                                 dropConn = true;
                             }
                             if (dropConn) {
+                                const bool wasUnfinished = !cit->handshakeDone;
                                 if (cit->fd >= 0) close(cit->fd);
                                 m_peerConns.erase(cit);
                                 auto lit = m_peers.find(pid);
@@ -2604,6 +2704,9 @@ private:
                                 if (!isHostCopy && pid == hostPeerCopy) {
                                     m_dialRetryCount++;
                                     m_nextDialMs = afterPollMs + qMin<qint64>(3000, 400LL * m_dialRetryCount);
+                                    if (wasUnfinished) {
+                                        escalated = maybeEscalateRelayLocked(isHostCopy);
+                                    }
                                 }
                             }
                         }
@@ -2625,6 +2728,12 @@ private:
                                 {QStringLiteral("connected"), false},
                             });
                         }
+                        if (escalated) {
+                            pushUiEvent(QJsonObject{
+                                {QStringLiteral("type"), QStringLiteral("transport_fallback")},
+                                {QStringLiteral("mode"), QStringLiteral("relay")},
+                            });
+                        }
                     }
                 }
             }
@@ -2641,6 +2750,7 @@ private:
             if (!isHostCopy && !hostPeerCopy.isEmpty()) {
                 bool handshakeTimedOut = false;
                 bool hadOpen = false;
+                bool escalated = false;
                 {
                     std::lock_guard<std::mutex> lock(m_netMutex);
                     auto cit = m_peerConns.find(hostPeerCopy);
@@ -2656,8 +2766,15 @@ private:
                         }
                         m_dialRetryCount++;
                         m_nextDialMs = afterPollMs + qMin<qint64>(3000, 500LL * m_dialRetryCount);
+                        escalated = maybeEscalateRelayLocked(isHostCopy);
                         handshakeTimedOut = true;
                     }
+                }
+                if (escalated) {
+                    pushUiEvent(QJsonObject{
+                        {QStringLiteral("type"), QStringLiteral("transport_fallback")},
+                        {QStringLiteral("mode"), QStringLiteral("relay")},
+                    });
                 }
                 if (handshakeTimedOut && hadOpen) {
                     pushUiEvent(QJsonObject{
@@ -4625,8 +4742,8 @@ bool ReverieCore::collabStartSession(const QString &roomCode,
     // 房主建房时, 为所有已有非背景图层补齐房主专属所有权 (若原为空)
     if (selfPeerId == hostPeerId) {
         std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
-        for (int i = 1; i < m_layers.size(); ++i) {
-            if (m_layers[i].node && m_layers[i].ownerPeerId.isEmpty()) {
+        for (int i = 0; i < m_layers.size(); ++i) {
+            if (m_layers[i].node && !m_layers[i].background && m_layers[i].ownerPeerId.isEmpty()) {
                 m_layers[i].ownerPeerId = selfPeerId;
                 m_layers[i].collabPermission = 1;
                 reverie::setLayerProperty(m_layers[i].node, "reverie_owner", selfPeerId);
@@ -4785,6 +4902,101 @@ void ReverieCore::collabSyncOnReconnect(const QString &hostPeerId, const QString
 void ReverieCore::collabRetryPeer(const QString &peerId)
 {
     if (m_collab) m_collab->retryPeer(peerId);
+}
+
+bool ReverieCore::collabPruneNonOwnLayersForExit(const QString &selfPeerId)
+{
+    if (!m_document) return false;
+    if (m_liquifyTxnActive) {
+        liquifyCancel();
+    }
+
+    const bool prevSuppress = m_collabSuppressEmit;
+    const bool prevUndo = m_undoCaptureEnabled;
+    m_collabSuppressEmit = true;
+    m_undoCaptureEnabled = false;
+
+    const QString cleanSelf = selfPeerId.trimmed();
+    auto shouldKeep = [&cleanSelf](const LayerEntry &e) -> bool {
+        if (e.background) return true;
+        if (e.collabPermission == 0) return true; // SHARED 公共层
+        if (e.ownerPeerId.isEmpty()) return true;
+        return !cleanSelf.isEmpty() && e.ownerPeerId == cleanSelf;
+    };
+
+    KisNodeSP root(m_document->rootLayer());
+    bool anyChanged = false;
+
+    if (root) {
+        // 1) 若其他成员的专属组内包含“本人层或公共层”, 先把需保留的子节点挪到根层, 避免随组一起被删除
+        for (int pass = 0; pass < 32; ++pass) {
+            bool movedAny = false;
+            syncLayersFromImage();
+            KisNodeSP afterBg = (!m_layers.isEmpty() && m_layers[0].background && m_layers[0].node)
+                ? KisNodeSP(m_layers[0].node)
+                : KisNodeSP();
+            for (int i = 1; i < m_layers.size(); ++i) {
+                const LayerEntry &e = m_layers[i];
+                if (!e.node || e.nodeType == NodeTypeTransparencyMask) continue;
+                if (!shouldKeep(e)) continue;
+                bool insideDeletedGroup = false;
+                for (KisNode *p = e.node->parent().data(); p && p != root.data(); p = p->parent().data()) {
+                    const int pIdx = indexOfNode(p);
+                    if (pIdx > 0 && pIdx < m_layers.size() && !shouldKeep(m_layers[pIdx])) {
+                        insideDeletedGroup = true;
+                        break;
+                    }
+                }
+                if (insideDeletedGroup) {
+                    KisImageLayerMoveCommand moveCmd(m_document, KisNodeSP(e.node), root, afterBg);
+                    moveCmd.redo();
+                    movedAny = true;
+                    anyChanged = true;
+                    break;
+                }
+            }
+            if (!movedAny) break;
+        }
+
+        // 2) 从下往上剔除全部他人专属/锁定的层、蒙版与空组
+        for (int pass = 0; pass < 128; ++pass) {
+            bool removedAny = false;
+            syncLayersFromImage();
+            for (int i = m_layers.size() - 1; i >= 1; --i) {
+                const LayerEntry &e = m_layers[i];
+                if (!e.node || !e.node->parent()) continue;
+                if (shouldKeep(e)) continue;
+                KisImageLayerRemoveCommand rmCmd(m_document, KisNodeSP(e.node));
+                rmCmd.redo();
+                removedAny = true;
+                anyChanged = true;
+                break;
+            }
+            if (!removedAny) break;
+        }
+    }
+
+    syncLayersFromImage();
+    int bestFocus = 0;
+    for (int i = m_layers.size() - 1; i >= 1; --i) {
+        const LayerEntry &e = m_layers[i];
+        if (!e.isGroup && e.nodeType != NodeTypeTransparencyMask) {
+            bestFocus = i;
+            break;
+        }
+    }
+    if (bestFocus == 0 && m_layers.size() > 1) {
+        bestFocus = m_layers.size() - 1;
+    }
+    m_currentLayer = qBound(0, bestFocus, qMax(0, m_layers.size() - 1));
+
+    clearUndoHistory();
+    recompositeProjection();
+    markDirty();
+
+    m_collabSuppressEmit = prevSuppress;
+    m_undoCaptureEnabled = prevUndo;
+    return anyChanged;
 }
 
 void ReverieCore::setProjectCollabMeta(bool isCollab, const QString &roomCode)

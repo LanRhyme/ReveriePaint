@@ -4425,4 +4425,57 @@
     <string name="collab_quick_msg_wait">稍等一下</string>
     <string name="collab_quick_msg_look">看这里</string>
     <string name="collab_quick_msg_save">先存个档</string>
+
+    <!-- Collab Save Policy, Transport Relay & Recovery -->
+    <string name="collab_save_policy_label">作品保存权限</string>
+    <string name="collab_save_policy_all">完整画布</string>
+    <string name="collab_save_policy_own_only">仅本人画作</string>
+    <string name="collab_save_policy_all_desc">所有成员与房主均可随时保存或导出完整茶绘作品</string>
+    <string name="collab_save_policy_own_desc">创建后不可修改 · 房内禁用保存与导出 · 退房保留本人、公共及背景层（房主同样受限）</string>
+    <string name="collab_save_policy_immutable_hint">建房时锁定，创建后不可修改</string>
+    <string name="collab_own_only_badge">仅存本人图层</string>
+    <string name="collab_own_only_in_room_blocked">当前房间仅允许退房时保存本人图层</string>
+    <string name="collab_end_save_own_only_desc">茶绘已结束，已自动剔除其他画师专属图层，仅保留你的图层、公共层与背景层供保存</string>
+    <string name="collab_end_save_scope_own">保存范围：本人图层 + 公共层 + 背景层</string>
+    <string name="collab_end_save_scope_all">保存范围：完整茶绘作品</string>
+
+    <string name="collab_force_relay_label">强制走 TCP 中继</string>
+    <string name="collab_force_relay_hint">跳过 P2P 打洞直接走中继服务器，直连长期卡住时建议开启</string>
+    <string name="collab_toast_auto_switched_relay">直连打洞超时，已自动切换至中继模式</string>
+    <string name="collab_switch_relay_btn">切中继</string>
+    <string name="collab_waiting_initial_snapshot">正在连接房主并同步画布内容…</string>
+
+    <string name="collab_tab_room_peers">房间与成员</string>
+    <string name="collab_tab_chat">聊天</string>
+    <string name="collab_tab_settings">设置</string>
+    <string name="collab_chat_empty">暂无消息，可使用快捷短语或在下方发送</string>
+    <string name="collab_private_room_badge">私密</string>
+    <string name="collab_room_title_optional_label">房间名称（私密房间选填）</string>
+    <string name="collab_edit_room_section">房间信息与权限</string>
+    <string name="collab_edit_password_keep">保持不变</string>
+    <string name="collab_edit_password_clear">清除密码</string>
+    <string name="collab_edit_password_set">重设密码</string>
+    <string name="collab_edit_password_new_hint">输入新的房间密码</string>
+    <string name="collab_apply_room_settings">保存房间设置</string>
+    <string name="collab_room_settings_updated_toast">房间设置已更新</string>
+
+    <string name="collab_recovery_banner_title">上次茶绘「%1$s」仍在进行</string>
+    <string name="collab_recovery_banner_code">检测到断线前房间 %1$s，可一键恢复原身份</string>
+    <string name="collab_recovery_resume_btn">恢复重连</string>
+    <string name="collab_recovery_dismiss_btn">忽略</string>
+    <string name="collab_nickname_change_btn">修改</string>
+    <string name="collab_canvas_source_label">画布来源</string>
+    <string name="collab_canvas_source_current">当前画布</string>
+    <string name="collab_canvas_source_existing">现有画布</string>
+    <string name="collab_canvas_source_new">新建画布</string>
+    <string name="collab_current_canvas_info">%1$s · %2$d × %3$d px · %4$d 个图层</string>
+    <string name="collab_create_with_current_canvas">使用当前画布创建房间</string>
+    <string name="collab_create_with_existing_canvas">打开画布并创建房间</string>
+    <string name="collab_existing_canvas_pick_title">选择现有画布</string>
+    <string name="collab_existing_canvas_empty">暂无可用的本地画布，请切换「新建画布」或先创建作品</string>
+    <string name="collab_canvas_untitled">未命名画布</string>
+    <string name="collab_project_menu_host">从此画布发起茶绘</string>
+    <string name="collab_existing_project_meta">%1$d × %2$d px · %3$d 个图层</string>
+    <string name="collab_canvas_entry_desc">使用当前画布开启茶绘房间，或输入房间码加入好友</string>
+    <string name="collab_canvas_active_desc">正在联机 · 房间 %1$s · %2$d 人在线</string>
 </resources>

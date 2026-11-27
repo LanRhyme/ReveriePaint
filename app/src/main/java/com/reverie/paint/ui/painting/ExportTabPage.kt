@@ -82,8 +82,10 @@ import com.reverie.paint.core.exportDocument
 import com.reverie.paint.core.exportImageToGallery
 import com.reverie.paint.core.getTimelapseFrameCount
 import com.reverie.paint.core.goReplay
+import com.reverie.paint.core.isCollabFullSaveRestricted
 import com.reverie.paint.core.playbackEndFrame
 import com.reverie.paint.core.shareAnimation
+import com.reverie.paint.core.showActionToast
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.components.liquidHighlight
@@ -136,6 +138,9 @@ internal fun ExportTabPage(
         vm.targetExportAnimation = false
     }
 
+    val saveRestricted = vm.isCollabFullSaveRestricted()
+    val restrictedMsg = stringResource(R.string.collab_own_only_in_room_blocked)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -143,6 +148,30 @@ internal fun ExportTabPage(
             .padding(vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        if (saveRestricted) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Morandi.accent.copy(alpha = 0.14f))
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_lock),
+                    contentDescription = null,
+                    tint = Morandi.accent,
+                    modifier = Modifier.size(15.dp),
+                )
+                Text(
+                    text = restrictedMsg,
+                    color = Morandi.text,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
         // 顶部分类切换 (当且仅当该工程支持动画时展示)
         if (hasAnimation) {
             Row(
@@ -225,6 +254,8 @@ private fun StaticExportSection(
     var selectedFormat by remember { mutableStateOf("PNG") }
     var isExporting by remember { mutableStateOf(false) }
     var embedAuthor by remember { mutableStateOf(vm.authorProfile.enabled) }
+    val saveRestricted = vm.isCollabFullSaveRestricted()
+    val restrictedMsg = stringResource(R.string.collab_own_only_in_room_blocked)
 
     val exportFormats = remember {
         listOf(
@@ -511,14 +542,24 @@ private fun StaticExportSection(
                 .height(44.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .liquidHighlight(exportInteraction, Color.White, radius = 80.dp)
-                .background(if (isExporting) Morandi.accent.copy(alpha = 0.6f) else Morandi.accent)
+                .background(
+                    when {
+                        saveRestricted -> Morandi.panelHi.copy(alpha = 0.55f)
+                        isExporting -> Morandi.accent.copy(alpha = 0.6f)
+                        else -> Morandi.accent
+                    },
+                )
                 .clickable(interactionSource = exportInteraction, indication = null, enabled = !isExporting) {
+                    if (saveRestricted) {
+                        vm.showActionToast(restrictedMsg, R.drawable.ic_lock)
+                        return@clickable
+                    }
                     val ext = selectedFormat.lowercase()
                     val mime = when (selectedFormat.uppercase()) {
                         "PNG" -> "image/png"
                         "JPEG", "JPG" -> "image/jpeg"
                         "WEBP" -> "image/webp"
-                        "PSD" -> "image/vnd.adobe.photoshop"
+                        "PSD" -> "application/vnd.adobe.photoshop"
                         "TIFF" -> "image/tiff"
                         "KRA" -> "application/x-krita"
                         "REVP" -> "application/x-reveriepaint"
@@ -530,15 +571,15 @@ private fun StaticExportSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                painter = painterResource(R.drawable.ic_export),
+                painter = painterResource(if (saveRestricted) R.drawable.ic_lock else R.drawable.ic_export),
                 contentDescription = null,
-                tint = Morandi.onAccent,
+                tint = if (saveRestricted) Morandi.subText else Morandi.onAccent,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 text = if (isExporting) stringResource(R.string.export_exporting) else stringResource(R.string.export_to_file_format, currentItem.format),
-                color = Morandi.onAccent,
+                color = if (saveRestricted) Morandi.subText else Morandi.onAccent,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -559,8 +600,12 @@ private fun StaticExportSection(
                         .height(38.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .liquidHighlight(galleryInteraction, Color.White, radius = 60.dp)
-                        .background(Morandi.panelHi)
+                        .background(Morandi.panelHi.copy(alpha = if (saveRestricted) 0.45f else 1f))
                         .clickable(interactionSource = galleryInteraction, indication = null, enabled = !isExporting) {
+                            if (saveRestricted) {
+                                vm.showActionToast(restrictedMsg, R.drawable.ic_lock)
+                                return@clickable
+                            }
                             isExporting = true
                             vm.exportImageToGallery(
                                 format = selectedFormat.lowercase(),
@@ -582,11 +627,16 @@ private fun StaticExportSection(
                     Icon(
                         painter = painterResource(R.drawable.ic_save_as),
                         contentDescription = null,
-                        tint = Morandi.accent,
+                        tint = (if (saveRestricted) Morandi.subText else Morandi.accent),
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.export_save_to_gallery), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        stringResource(R.string.export_save_to_gallery),
+                        color = if (saveRestricted) Morandi.subText else Morandi.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
 
@@ -598,8 +648,12 @@ private fun StaticExportSection(
                     .height(38.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .liquidHighlight(shareInteraction, Color.White, radius = 60.dp)
-                    .background(Morandi.panelHi)
+                    .background(Morandi.panelHi.copy(alpha = if (saveRestricted) 0.45f else 1f))
                     .clickable(interactionSource = shareInteraction, indication = null, enabled = !isExporting) {
+                        if (saveRestricted) {
+                            vm.showActionToast(restrictedMsg, R.drawable.ic_lock)
+                            return@clickable
+                        }
                         isExporting = true
                         val ext = selectedFormat.lowercase()
                         val shareDir = File(context.cacheDir, "share")
@@ -668,9 +722,13 @@ private fun StaticExportSection(
                 .fillMaxWidth()
                 .pressScale(templateInteraction, pressedScale = 0.98f)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Morandi.panelHi.copy(alpha = 0.6f))
+                .background(Morandi.panelHi.copy(alpha = if (saveRestricted) 0.35f else 0.6f))
                 .clickable(interactionSource = templateInteraction, indication = null) {
-                    showSaveTemplateDialog = true
+                    if (saveRestricted) {
+                        vm.showActionToast(restrictedMsg, R.drawable.ic_lock)
+                    } else {
+                        showSaveTemplateDialog = true
+                    }
                 }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1019,6 +1077,8 @@ private fun AnimationExportSection(
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
+    val saveRestricted = vm.isCollabFullSaveRestricted()
+    val restrictedMsg = stringResource(R.string.collab_own_only_in_room_blocked)
 
     val animFormats = remember {
         listOf(
@@ -1374,8 +1434,18 @@ private fun AnimationExportSection(
                 .height(44.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .liquidHighlight(exportInteraction, Color.White, radius = 80.dp)
-                .background(if (isExporting) Morandi.accent.copy(alpha = 0.6f) else Morandi.accent)
+                .background(
+                    when {
+                        saveRestricted -> Morandi.panelHi.copy(alpha = 0.55f)
+                        isExporting -> Morandi.accent.copy(alpha = 0.6f)
+                        else -> Morandi.accent
+                    },
+                )
                 .clickable(interactionSource = exportInteraction, indication = null, enabled = !isExporting) {
+                    if (saveRestricted) {
+                        vm.showActionToast(restrictedMsg, R.drawable.ic_lock)
+                        return@clickable
+                    }
                     val ext = selectedFormat.lowercase()
                     val mime = when (selectedFormat.uppercase()) {
                         "MP4" -> "video/mp4"
@@ -1389,15 +1459,15 @@ private fun AnimationExportSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                painter = painterResource(R.drawable.ic_export),
+                painter = painterResource(if (saveRestricted) R.drawable.ic_lock else R.drawable.ic_export),
                 contentDescription = null,
-                tint = Morandi.onAccent,
+                tint = if (saveRestricted) Morandi.subText else Morandi.onAccent,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 text = if (isExporting) stringResource(R.string.export_exporting) else stringResource(R.string.export_to_file_format, currentItem.format),
-                color = Morandi.onAccent,
+                color = if (saveRestricted) Morandi.subText else Morandi.onAccent,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -1418,8 +1488,12 @@ private fun AnimationExportSection(
                         .height(38.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .liquidHighlight(galleryInteraction, Color.White, radius = 60.dp)
-                        .background(Morandi.panelHi)
+                        .background(Morandi.panelHi.copy(alpha = if (saveRestricted) 0.45f else 1f))
                         .clickable(interactionSource = galleryInteraction, indication = null, enabled = !isExporting) {
+                            if (saveRestricted) {
+                                vm.showActionToast(restrictedMsg, R.drawable.ic_lock)
+                                return@clickable
+                            }
                             isExporting = true
                             exportCancelled = false
 
@@ -1448,11 +1522,16 @@ private fun AnimationExportSection(
                     Icon(
                         painter = painterResource(R.drawable.ic_save_as),
                         contentDescription = null,
-                        tint = Morandi.accent,
+                        tint = if (saveRestricted) Morandi.subText else Morandi.accent,
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.export_save_to_gallery), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        stringResource(R.string.export_save_to_gallery),
+                        color = if (saveRestricted) Morandi.subText else Morandi.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
 
@@ -1464,8 +1543,12 @@ private fun AnimationExportSection(
                     .height(38.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .liquidHighlight(shareInteraction, Color.White, radius = 60.dp)
-                    .background(Morandi.panelHi)
+                    .background(Morandi.panelHi.copy(alpha = if (saveRestricted) 0.45f else 1f))
                     .clickable(interactionSource = shareInteraction, indication = null, enabled = !isExporting) {
+                        if (saveRestricted) {
+                            vm.showActionToast(restrictedMsg, R.drawable.ic_lock)
+                            return@clickable
+                        }
                         isExporting = true
                         exportCancelled = false
 

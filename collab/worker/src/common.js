@@ -133,6 +133,12 @@ export const DEFAULT_STUN_SERVERS = [
   'txt:stun.easytier.cn',
 ];
 
+export const SAVE_POLICIES = ['all', 'own_only'];
+
+export function sanitizeSavePolicy(raw) {
+  return raw === 'own_only' ? 'own_only' : 'all';
+}
+
 export const DEFAULT_STUN_V6_SERVERS = ['txt:stun-v6.easytier.cn'];
 
 export function parseCsvList(raw) {

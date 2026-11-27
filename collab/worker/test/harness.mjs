@@ -182,6 +182,7 @@ export class WorkerClient {
     maxPeers = 8,
     isPublic = false,
     title = '',
+    savePolicy = 'all',
     canvasWidth = 200,
     canvasHeight = 120,
   } = {}) {
@@ -195,6 +196,7 @@ export class WorkerClient {
         requireApproval,
         maxPeers,
         isPublic,
+        savePolicy,
         ...(title ? { title } : {}),
         canvasMeta: { width: canvasWidth, height: canvasHeight },
       }),
@@ -214,9 +216,10 @@ export class WorkerClient {
   }
 
   /** 建立信令连接; 握手被拒 (4xx) 时抛错 */
-  connect({ roomCode, peerId, name, role = 'peer', token = '', password = '', timeoutMs = 10000 }) {
+  connect({ roomCode, peerId, name, role = 'peer', token = '', peerToken = '', password = '', timeoutMs = 10000 }) {
     const q = new URLSearchParams({ peerId, role, name });
     if (token) q.set('token', token);
+    if (peerToken) q.set('pt', peerToken);
     if (password) q.set('pw', password);
     const url = `${this.wsBase}/c/v1/rooms/${roomCode}/ws?${q}`;
 

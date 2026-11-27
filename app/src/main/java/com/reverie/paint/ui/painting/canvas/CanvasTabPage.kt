@@ -432,6 +432,8 @@ internal fun CanvasTabPage(
         }
 
         // 2. 工程与图层卡片 (Project & Layers Group - Zero Border Tiles)
+        val saveRestricted = vm.isCollabFullSaveRestricted()
+        val restrictedMsg = stringResource(R.string.collab_own_only_in_room_blocked)
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = stringResource(R.string.canvas_group_project),
@@ -440,6 +442,31 @@ internal fun CanvasTabPage(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
             )
+            if (saveRestricted) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Morandi.accent.copy(alpha = 0.12f))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_lock),
+                        contentDescription = null,
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Text(
+                        text = restrictedMsg,
+                        color = Morandi.text,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -447,7 +474,12 @@ internal fun CanvasTabPage(
                 CanvasActionTile(
                     icon = R.drawable.ic_save,
                     label = stringResource(R.string.common_save),
+                    dimmed = saveRestricted,
                     onClick = {
+                        if (saveRestricted) {
+                            vm.showActionToast(restrictedMsg, R.drawable.ic_lock)
+                            return@CanvasActionTile
+                        }
                         onClose()
                         vm.saveProject(vm.docName) {
                             android.widget.Toast.makeText(context, resources.getString(R.string.canvas_toast_project_saved, vm.docName), android.widget.Toast.LENGTH_SHORT).show()
@@ -458,7 +490,12 @@ internal fun CanvasTabPage(
                 CanvasActionTile(
                     icon = R.drawable.ic_save_as,
                     label = stringResource(R.string.canvas_action_save_as),
+                    dimmed = saveRestricted,
                     onClick = {
+                        if (saveRestricted) {
+                            vm.showActionToast(restrictedMsg, R.drawable.ic_lock)
+                            return@CanvasActionTile
+                        }
                         saveAsName = vm.docName + "_copy"
                         showSaveAsDialog = true
                     },
@@ -547,6 +584,101 @@ internal fun CanvasTabPage(
                 )
             }
         }
+
+        // 4. 多人茶绘入口卡片 (直接基于当前画布开启房间或管理正在进行的房间)
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = stringResource(R.string.collab_title),
+                color = Morandi.subText,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+            )
+            val collabActive = vm.collab.isActive
+            val interaction = remember { MutableInteractionSource() }
+            val cardShape = RoundedCornerShape(10.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pressScale(interaction, pressedScale = 0.98f)
+                    .clip(cardShape)
+                    .liquidHighlight(interaction, Color.White, radius = 28.dp)
+                    .background(
+                        if (collabActive) Morandi.accent.copy(alpha = 0.14f)
+                        else Morandi.panelHi.copy(alpha = 0.55f),
+                    )
+                    .clickable(interactionSource = interaction, indication = null) {
+                        onClose()
+                        vm.ensureCollabPrefsLoaded()
+                        if (vm.collab.isActive) {
+                            vm.collab.showRoomSheet = true
+                        } else {
+                            vm.collab.showLobbyDialog = true
+                        }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Morandi.accent.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_cloud),
+                        contentDescription = null,
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = if (collabActive) {
+                                vm.collab.roomTitle.ifBlank { stringResource(R.string.collab_room_settings_btn) }
+                            } else {
+                                stringResource(R.string.collab_create_room)
+                            },
+                            color = Morandi.text,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                        com.reverie.paint.ui.painting.collab.CollabBetaBadge()
+                    }
+                    Text(
+                        text = if (collabActive) {
+                            stringResource(
+                                R.string.collab_canvas_active_desc,
+                                vm.collab.roomCode,
+                                vm.collab.peers.size.coerceAtLeast(1),
+                            )
+                        } else {
+                            stringResource(R.string.collab_canvas_entry_desc)
+                        },
+                        color = Morandi.subText,
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp,
+                        maxLines = 2,
+                    )
+                }
+                Icon(
+                    painter = painterResource(R.drawable.ic_chevron),
+                    contentDescription = null,
+                    tint = Morandi.subText,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
     }
 }
 
@@ -558,13 +690,15 @@ private fun CanvasActionTile(
     modifier: Modifier = Modifier,
     /** 开关类动作的"已开启"态 (如视图翻转), 开启时整体高亮, 一眼能看出当前状态 */
     active: Boolean = false,
+    dimmed: Boolean = false,
     /** 长按回调: 给了就启用长按 (画布翻转用长按 = 完全翻转) */
     onLongClick: (() -> Unit)? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(10.dp)
-    val iconTint = if (active) Morandi.accent else Morandi.icon
-    val labelColor = if (active) Morandi.accent else Morandi.text
+    val contentAlpha = if (dimmed) 0.45f else 1f
+    val iconTint = (if (active) Morandi.accent else Morandi.icon).copy(alpha = contentAlpha)
+    val labelColor = (if (active) Morandi.accent else Morandi.text).copy(alpha = contentAlpha)
 
     Column(
         modifier = modifier

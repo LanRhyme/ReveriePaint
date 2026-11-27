@@ -8,6 +8,7 @@ import {
   normalizeRoomCode,
   parsePositiveInt,
   sanitizeName,
+  sanitizeSavePolicy,
   sanitizeTitle,
 } from './common.js';
 
@@ -23,6 +24,7 @@ export class RoomDirectory extends DurableObject {
         max_peers INTEGER NOT NULL,
         has_password INTEGER NOT NULL,
         require_approval INTEGER NOT NULL,
+        save_policy TEXT NOT NULL DEFAULT 'all',
         canvas_width INTEGER NOT NULL,
         canvas_height INTEGER NOT NULL,
         created_at INTEGER NOT NULL,
@@ -30,6 +32,11 @@ export class RoomDirectory extends DurableObject {
         expires_at INTEGER NOT NULL
       )
     `);
+    try {
+      this.ctx.storage.sql.exec(
+        "ALTER TABLE public_rooms ADD COLUMN save_policy TEXT NOT NULL DEFAULT 'all'",
+      );
+    } catch {}
   }
 
   async fetch(request) {
@@ -71,6 +78,7 @@ export class RoomDirectory extends DurableObject {
     const maxPeers = parsePositiveInt(body.maxPeers, 16, 2, 1024);
     const hasPassword = body.hasPassword ? 1 : 0;
     const requireApproval = body.requireApproval ? 1 : 0;
+    const savePolicy = sanitizeSavePolicy(body.savePolicy);
     const canvasWidth = parsePositiveInt(body.canvasWidth, 0, 0, 65535);
     const canvasHeight = parsePositiveInt(body.canvasHeight, 0, 0, 65535);
     const createdAt = parsePositiveInt(body.createdAt, now, 1, Number.MAX_SAFE_INTEGER);
@@ -81,9 +89,9 @@ export class RoomDirectory extends DurableObject {
     this.ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO public_rooms (
         room_code, title, host_name, peer_count, max_peers,
-        has_password, require_approval, canvas_width, canvas_height,
+        has_password, require_approval, save_policy, canvas_width, canvas_height,
         created_at, updated_at, expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       roomCode,
       title,
       hostName,
@@ -91,6 +99,7 @@ export class RoomDirectory extends DurableObject {
       maxPeers,
       hasPassword,
       requireApproval,
+      savePolicy,
       canvasWidth,
       canvasHeight,
       createdAt,
@@ -118,7 +127,7 @@ export class RoomDirectory extends DurableObject {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT room_code, title, host_name, peer_count, max_peers,
-                has_password, require_approval, canvas_width, canvas_height,
+                has_password, require_approval, save_policy, canvas_width, canvas_height,
                 created_at, updated_at
          FROM public_rooms
          WHERE expires_at > ? AND peer_count > 0
@@ -137,6 +146,7 @@ export class RoomDirectory extends DurableObject {
       maxPeers: Number(r.max_peers) || 16,
       hasPassword: Boolean(r.has_password),
       requireApproval: Boolean(r.require_approval),
+      savePolicy: sanitizeSavePolicy(r.save_policy),
       canvasWidth: Number(r.canvas_width) || 0,
       canvasHeight: Number(r.canvas_height) || 0,
       createdAt: Number(r.created_at) || 0,

@@ -4426,4 +4426,57 @@
     <string name="collab_quick_msg_wait">One sec</string>
     <string name="collab_quick_msg_look">Look here</string>
     <string name="collab_quick_msg_save">Save now</string>
+
+    <!-- Collab Save Policy, Transport Relay & Recovery -->
+    <string name="collab_save_policy_label">Artwork Save Permission</string>
+    <string name="collab_save_policy_all">Full Canvas</string>
+    <string name="collab_save_policy_own_only">Own Layers Only</string>
+    <string name="collab_save_policy_all_desc">Members and host can save or export the full artwork at any time</string>
+    <string name="collab_save_policy_own_desc">Locked after creation · In-room save/export disabled · Keeps own, shared &amp; background layers on exit (applies to host too)</string>
+    <string name="collab_save_policy_immutable_hint">Cannot be changed after room creation</string>
+    <string name="collab_own_only_badge">Own Layers Only</string>
+    <string name="collab_own_only_in_room_blocked">This room only allows saving your own layers upon leaving</string>
+    <string name="collab_end_save_own_only_desc">Session ended. Other artists\' exclusive layers have been removed; your layers, shared layers, and background are kept</string>
+    <string name="collab_end_save_scope_own">Scope: Own + Shared + Background Layers</string>
+    <string name="collab_end_save_scope_all">Scope: Full Collab Artwork</string>
+
+    <string name="collab_force_relay_label">Force TCP Relay</string>
+    <string name="collab_force_relay_hint">Disable P2P hole-punching and route via TCP relay</string>
+    <string name="collab_toast_auto_switched_relay">Direct connection timed out, switched to relay mode</string>
+    <string name="collab_switch_relay_btn">Use Relay</string>
+    <string name="collab_waiting_initial_snapshot">Connecting to host and syncing canvas…</string>
+
+    <string name="collab_tab_room_peers">Room &amp; Peers</string>
+    <string name="collab_tab_chat">Chat</string>
+    <string name="collab_tab_settings">Settings</string>
+    <string name="collab_chat_empty">No messages yet, use a quick phrase or send one below</string>
+    <string name="collab_private_room_badge">Private</string>
+    <string name="collab_room_title_optional_label">Room Title (Optional when private)</string>
+    <string name="collab_edit_room_section">Room Settings</string>
+    <string name="collab_edit_password_keep">Keep Current</string>
+    <string name="collab_edit_password_clear">Remove Password</string>
+    <string name="collab_edit_password_set">Set New</string>
+    <string name="collab_edit_password_new_hint">Enter new room password</string>
+    <string name="collab_apply_room_settings">Save Room Settings</string>
+    <string name="collab_room_settings_updated_toast">Room settings updated</string>
+
+    <string name="collab_recovery_banner_title">Collab session "%1$s" is still active</string>
+    <string name="collab_recovery_banner_code">Previous room %1$s can be restored with your identity</string>
+    <string name="collab_recovery_resume_btn">Reconnect</string>
+    <string name="collab_recovery_dismiss_btn">Dismiss</string>
+    <string name="collab_nickname_change_btn">Edit</string>
+    <string name="collab_canvas_source_label">Canvas Source</string>
+    <string name="collab_canvas_source_current">Current</string>
+    <string name="collab_canvas_source_existing">Saved Art</string>
+    <string name="collab_canvas_source_new">New Canvas</string>
+    <string name="collab_current_canvas_info">%1$s · %2$d × %3$d px · %4$d layers</string>
+    <string name="collab_create_with_current_canvas">Host with Current Canvas</string>
+    <string name="collab_create_with_existing_canvas">Open Canvas &amp; Host</string>
+    <string name="collab_existing_canvas_pick_title">Choose an Existing Canvas</string>
+    <string name="collab_existing_canvas_empty">No saved canvases found yet. Switch to New Canvas or create one first</string>
+    <string name="collab_canvas_untitled">Current Canvas</string>
+    <string name="collab_project_menu_host">Host Collab from Canvas</string>
+    <string name="collab_existing_project_meta">%1$d × %2$d px · %3$d layers</string>
+    <string name="collab_canvas_entry_desc">Host a room with this canvas or join another via code</string>
+    <string name="collab_canvas_active_desc">Live in %1$s · %2$d online</string>
 </resources>

@@ -132,6 +132,10 @@ internal fun PaintViewModel.saveProject(
     name: String,
     onComplete: (() -> Unit)? = null,
 ) {
+    if (isCollabFullSaveRestricted()) {
+        showActionToast(R.string.collab_own_only_in_room_blocked, R.drawable.ic_lock)
+        return
+    }
     val fileToSave =
         currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true && !it.name.contains(".autosave") }
             ?: run {
@@ -336,6 +340,7 @@ internal fun PaintViewModel.saveProject(
 }
 
 internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
+    if (isCollabFullSaveRestricted()) return
     if (isAutoSaving || isBlockingLoading) return
     val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
     if (touchView?.isInteracting == true || touchView?.isTransformActive == true) return
@@ -559,6 +564,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
 
 internal fun PaintViewModel.emergencySaveOnCrash() {
     if (currentPage != Page.PAINTING) return
+    if (isCollabFullSaveRestricted()) return
     try {
         val name = docName.ifBlank { getString(R.string.project_default_name).ifBlank { "Untitled Artwork" } }
         val emergencyFile = File(autoSaveDir(), "$name.emergency.revp")
@@ -731,6 +737,7 @@ internal fun PaintViewModel.openProjectFromGallery(
 /** 画廊转场蓄力期间发生工程加载失败时安全退回画廊 (不触发返回收拢波, 避免暴露空白画布)。 */
 internal fun PaintViewModel.abortFailedGalleryLoadToHome() {
     isBlockingLoading = false
+    collab.pendingCreateMode = false
     cancelAwaitingFirstFrameAfterLoad()
     pendingCanvasOrientation = null
     currentProjectFile = null
@@ -807,6 +814,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 "h" to docHeight.toLong(),
             )
             if (!documentLoaded) {
+                collab.pendingCreateMode = false
                 Breadcrumbs.record("IO", "loadProject FAILED for: ${p.name}")
                 isBlockingLoading = false
                 if (!suppressPaintingLoadingOverlay) {
@@ -937,6 +945,9 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             beginAwaitingFirstFrameAfterLoad()
             lastLoadProjectSucceeded = true
             loadProjectOutcomeVersion++
+            if (collab.pendingCreateMode) {
+                hostRoomOnCreatedCanvas(docWidth, docHeight)
+            }
             if (isRecovered) {
                 showActionToast(R.string.toast_project_restored_autosave, R.drawable.ic_save)
             } else if (isHealed) {
@@ -1870,6 +1881,12 @@ internal fun PaintViewModel.exportDocument(
     onSuccess: (java.io.File) -> Unit,
     onError: (String) -> Unit = {},
 ) {
+    if (isCollabFullSaveRestricted()) {
+        val msg = getString(R.string.collab_own_only_in_room_blocked)
+        showActionToast(msg, R.drawable.ic_lock)
+        onError(msg)
+        return
+    }
     val fmt = format.lowercase()
     if (isTypographyEditing) {
         commitTypographyToCanvas()

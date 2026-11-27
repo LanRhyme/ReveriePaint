@@ -374,6 +374,12 @@ internal fun PaintViewModel.exportAnimation(
     onSuccess: (File) -> Unit,
     onError: (String) -> Unit,
 ) {
+    if (isCollabFullSaveRestricted()) {
+        val msg = getString(R.string.collab_own_only_in_room_blocked)
+        showActionToast(msg, R.drawable.ic_lock)
+        onError(msg)
+        return
+    }
     val fmt = options.format.lowercase()
     val scale = options.scale.coerceIn(0.1f, 1.0f)
     val transparentBg = options.transparentBg && fmt != "mp4" // MP4 不支持 Alpha 通道

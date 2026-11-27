@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -267,6 +268,7 @@ fun ReButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     primary: Boolean = true,
+    enabled: Boolean = true,
 ) {
     val colors = Theme.current
     val interaction = remember { MutableInteractionSource() }
@@ -274,12 +276,17 @@ fun ReButton(
     Box(
         modifier =
             modifier
-                .then(if (primary) Modifier.pressGrow(interaction, growFraction = 0.03f) else Modifier.pressScale(interaction, pressedScale = 0.97f))
+                .then(
+                    if (!enabled) Modifier
+                    else if (primary) Modifier.pressGrow(interaction, growFraction = 0.03f)
+                    else Modifier.pressScale(interaction, pressedScale = 0.97f),
+                )
+                .alpha(if (enabled) 1f else 0.45f)
                 .clip(buttonShape)
                 .liquidHighlight(interaction, Color.White, radius = 40.dp)
                 .background(if (primary) colors.accent else colors.panelHi)
                 .then(if (!primary) Modifier.glassBorder(buttonShape) else Modifier)
-                .clickable(interactionSource = interaction, indication = null) { onClick() }
+                .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onClick() }
                 .padding(horizontal = 18.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {

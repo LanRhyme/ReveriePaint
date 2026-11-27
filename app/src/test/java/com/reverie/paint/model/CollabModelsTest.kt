@@ -407,4 +407,78 @@ class CollabModelsTest {
         assertEquals(-150f, offsetPan.first, 1e-3f)
         assertEquals(0f, offsetPan.second, 1e-3f)
     }
+
+    @Test
+    fun `保存权限策略与退房过滤保留本人、公共及背景层`() {
+        assertEquals(CollabSavePolicy.ALL, CollabSavePolicy.fromWire("unknown"))
+        assertEquals(CollabSavePolicy.OWN_ONLY, CollabSavePolicy.fromWire("own_only"))
+
+        assertTrue(CollabPermissionPolicy.isFullSaveAllowedInCollab(inCollab = false, CollabSavePolicy.OWN_ONLY))
+        assertTrue(CollabPermissionPolicy.isFullSaveAllowedInCollab(inCollab = true, CollabSavePolicy.ALL))
+        assertFalse(CollabPermissionPolicy.isFullSaveAllowedInCollab(inCollab = true, CollabSavePolicy.OWN_ONLY))
+
+        // 背景层与公共层保留
+        assertTrue(
+            CollabPermissionPolicy.shouldKeepLayerOnOwnOnlyExit(
+                isBackground = true,
+                ownerPeerId = "host",
+                permissionCode = LayerCollabPermission.LOCKED.code,
+                selfPeerId = "me",
+            ),
+        )
+        assertTrue(
+            CollabPermissionPolicy.shouldKeepLayerOnOwnOnlyExit(
+                isBackground = false,
+                ownerPeerId = "other",
+                permissionCode = LayerCollabPermission.SHARED.code,
+                selfPeerId = "me",
+            ),
+        )
+        // 本人专属/锁定层保留, 他人专属/锁定层剔除
+        assertTrue(
+            CollabPermissionPolicy.shouldKeepLayerOnOwnOnlyExit(
+                isBackground = false,
+                ownerPeerId = "me",
+                permissionCode = LayerCollabPermission.OWNER_ONLY.code,
+                selfPeerId = "me",
+            ),
+        )
+        assertFalse(
+            CollabPermissionPolicy.shouldKeepLayerOnOwnOnlyExit(
+                isBackground = false,
+                ownerPeerId = "other",
+                permissionCode = LayerCollabPermission.OWNER_ONLY.code,
+                selfPeerId = "me",
+            ),
+        )
+        assertFalse(
+            CollabPermissionPolicy.shouldKeepLayerOnOwnOnlyExit(
+                isBackground = false,
+                ownerPeerId = "other",
+                permissionCode = LayerCollabPermission.LOCKED.code,
+                selfPeerId = "me",
+            ),
+        )
+    }
+
+    @Test
+    fun `重连重名预检按 peerId 排除本人历史会话避免误报`() {
+        val summary = CollabRoomSummary(
+            roomCode = "AB2C9K",
+            hostPeerId = "p_host",
+            hostName = "房主",
+            requireApproval = false,
+            hasPassword = false,
+            maxPeers = 8,
+            peerCount = 2,
+            peerNames = listOf("房主", "画师甲"),
+            peers = listOf(
+                CollabPeerSummary("p_host", "房主"),
+                CollabPeerSummary("p_self", "画师甲"),
+            ),
+        )
+        assertFalse(CollabTopologyPolicy.hasDuplicateNicknameExcludingSelf("画师甲", summary, "p_self"))
+        assertTrue(CollabTopologyPolicy.hasDuplicateNicknameExcludingSelf("画师甲", summary, "p_other"))
+        assertFalse(CollabTopologyPolicy.hasDuplicateNicknameExcludingSelf("房主", summary, "p_host"))
+    }
 }
