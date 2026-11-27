@@ -322,6 +322,11 @@
     <string name="gallery_time_days_ago">%d 天前</string>
     <string name="gallery_drag_exit_hint">拖到此处移出画集</string>
     <string name="gallery_menu_sort">排序</string>
+    <string name="gallery_card_size_title">卡片尺寸</string>
+    <string name="gallery_card_size_compact">紧凑</string>
+    <string name="gallery_card_size_standard">标准</string>
+    <string name="gallery_card_size_large">大图</string>
+    <string name="gallery_show_card_meta">显示作品详情</string>
 
     <!-- Create Canvas -->
     <string name="create_title">创建画布</string>

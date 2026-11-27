@@ -322,6 +322,11 @@
     <string name="gallery_time_days_ago">%dd ago</string>
     <string name="gallery_drag_exit_hint">Drag here to move out</string>
     <string name="gallery_menu_sort">Sort</string>
+    <string name="gallery_card_size_title">Card Size</string>
+    <string name="gallery_card_size_compact">Small</string>
+    <string name="gallery_card_size_standard">Medium</string>
+    <string name="gallery_card_size_large">Large</string>
+    <string name="gallery_show_card_meta">Show Details</string>
 
     <!-- Create Canvas -->
     <string name="create_title">Create Canvas</string>

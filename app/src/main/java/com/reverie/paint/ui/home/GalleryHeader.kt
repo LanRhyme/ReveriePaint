@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -282,25 +283,27 @@ internal fun GalleryFloatingHeader(
     onAutoSaveHistoryClick: () -> Unit,
     onRefreshClick: () -> Unit,
     onSelectSortMode: (String) -> Unit,
+    onSelectCardSize: (String) -> Unit,
+    onToggleShowCardMeta: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isWide = LocalConfiguration.current.screenWidthDp >= 600
-    val horizontalPad = if (isWide) 24.dp else 16.dp
+    val horizontalPad = 16.dp
     val scrimTopAlpha by animateFloatAsState(
         targetValue = when {
-            hasCustomBg && isScrolled -> 0.28f
+            hasCustomBg && isScrolled -> 0.24f
             hasCustomBg -> 0f
-            isScrolled -> 0.94f
-            else -> 0.72f
+            isScrolled -> 0.52f
+            else -> 0f
         },
         animationSpec = tween(220),
         label = "GalleryTopScrimTop",
     )
     val scrimMidAlpha by animateFloatAsState(
         targetValue = when {
-            hasCustomBg && isScrolled -> 0.12f
+            hasCustomBg && isScrolled -> 0.08f
             hasCustomBg -> 0f
-            isScrolled -> 0.56f
+            isScrolled -> 0.18f
             else -> 0f
         },
         animationSpec = tween(220),
@@ -366,48 +369,51 @@ internal fun GalleryFloatingHeader(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        AnimatedContent(
-                            targetState = when {
-                                isSelectMode -> "SELECT"
-                                currentFolder != null -> "FOLDER"
-                                else -> "GALLERY"
-                            },
-                            transitionSpec = {
-                                when (Motion.currentSpeed) {
-                                    UiAnimationSpeed.OFF -> EnterTransition.None togetherWith ExitTransition.None
-                                    UiAnimationSpeed.FAST -> {
-                                        if (targetState == "FOLDER") {
-                                            (slideInHorizontally(tween(90)) { it / 4 } + fadeIn(tween(90)))
-                                                .togetherWith(slideOutHorizontally(tween(70)) { -it / 4 } + fadeOut(tween(70)))
-                                        } else if (initialState == "FOLDER") {
-                                            (slideInHorizontally(tween(90)) { -it / 4 } + fadeIn(tween(90)))
-                                                .togetherWith(slideOutHorizontally(tween(70)) { it / 4 } + fadeOut(tween(70)))
-                                        } else {
-                                            fadeIn(tween(90)).togetherWith(fadeOut(tween(70)))
-                                        }
-                                    }
-                                    UiAnimationSpeed.NORMAL -> {
-                                        if (targetState == "FOLDER") {
-                                            (slideInHorizontally(Motion.enterSpring()) { it / 3 } + fadeIn(tween(200)))
-                                                .togetherWith(
-                                                    slideOutHorizontally(tween(170, easing = FastOutSlowInEasing)) { -it / 3 } +
-                                                        fadeOut(tween(150)),
-                                                )
-                                        } else if (initialState == "FOLDER") {
-                                            (slideInHorizontally(Motion.enterSpring()) { -it / 3 } + fadeIn(tween(200)))
-                                                .togetherWith(
-                                                    slideOutHorizontally(tween(170, easing = FastOutSlowInEasing)) { it / 3 } +
-                                                        fadeOut(tween(150)),
-                                                )
-                                        } else {
-                                            fadeIn(tween(180)).togetherWith(fadeOut(tween(140)))
-                                        }
-                                    }
-                                }
-                            },
+                        Box(
                             modifier = Modifier.weight(1f),
-                            label = "GalleryHeaderTitleState",
-                        ) { state ->
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            AnimatedContent(
+                                targetState = when {
+                                    isSelectMode -> "SELECT"
+                                    currentFolder != null -> "FOLDER"
+                                    else -> "GALLERY"
+                                },
+                                transitionSpec = {
+                                    when (Motion.currentSpeed) {
+                                        UiAnimationSpeed.OFF -> EnterTransition.None togetherWith ExitTransition.None
+                                        UiAnimationSpeed.FAST -> {
+                                            if (targetState == "FOLDER") {
+                                                (slideInHorizontally(tween(90)) { it / 4 } + fadeIn(tween(90)))
+                                                    .togetherWith(slideOutHorizontally(tween(70)) { -it / 4 } + fadeOut(tween(70)))
+                                            } else if (initialState == "FOLDER") {
+                                                (slideInHorizontally(tween(90)) { -it / 4 } + fadeIn(tween(90)))
+                                                    .togetherWith(slideOutHorizontally(tween(70)) { it / 4 } + fadeOut(tween(70)))
+                                            } else {
+                                                fadeIn(tween(90)).togetherWith(fadeOut(tween(70)))
+                                            }
+                                        }
+                                        UiAnimationSpeed.NORMAL -> {
+                                            if (targetState == "FOLDER") {
+                                                (slideInHorizontally(Motion.enterSpring()) { it / 3 } + fadeIn(tween(200)))
+                                                    .togetherWith(
+                                                        slideOutHorizontally(tween(170, easing = FastOutSlowInEasing)) { -it / 3 } +
+                                                            fadeOut(tween(150)),
+                                                    )
+                                            } else if (initialState == "FOLDER") {
+                                                (slideInHorizontally(Motion.enterSpring()) { -it / 3 } + fadeIn(tween(200)))
+                                                    .togetherWith(
+                                                        slideOutHorizontally(tween(170, easing = FastOutSlowInEasing)) { it / 3 } +
+                                                            fadeOut(tween(150)),
+                                                    )
+                                            } else {
+                                                fadeIn(tween(180)).togetherWith(fadeOut(tween(140)))
+                                            }
+                                        }
+                                    }
+                                },
+                                label = "GalleryHeaderTitleState",
+                            ) { state ->
                             when (state) {
                                 "FOLDER" -> {
                                     val folder = currentFolder
@@ -427,6 +433,14 @@ internal fun GalleryFloatingHeader(
 
                                 "SELECT" -> {
                                     Row(
+                                        modifier = Modifier
+                                            .height(42.dp)
+                                            .homeLiquidGlassSurface(
+                                                colors = colors,
+                                                shape = CircleShape,
+                                                hazeState = hazeState,
+                                            )
+                                            .padding(horizontal = 14.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     ) {
@@ -452,7 +466,7 @@ internal fun GalleryFloatingHeader(
                                             Text(
                                                 text = stringResource(R.string.gallery_selected_count, count),
                                                 color = colors.text,
-                                                fontSize = 18.sp,
+                                                fontSize = 15.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 style = TextStyle(fontFeatureSettings = "tnum"),
                                             )
@@ -462,37 +476,50 @@ internal fun GalleryFloatingHeader(
 
                                 else -> {
                                     Row(
+                                        modifier = Modifier
+                                            .height(42.dp)
+                                            .homeLiquidGlassSurface(
+                                                colors = colors,
+                                                shape = CircleShape,
+                                                hazeState = hazeState,
+                                            )
+                                            .padding(horizontal = 12.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                                     ) {
                                         Icon(
                                             painter = painterResource(R.drawable.ic_reverie_logo),
                                             contentDescription = null,
                                             tint = colors.accent,
-                                            modifier = Modifier.size(26.dp),
+                                            modifier = Modifier.size(20.dp),
                                         )
-                                        Column {
-                                            Text(
-                                                text = stringResource(R.string.gallery_title),
-                                                color = colors.text,
-                                                fontSize = 23.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                letterSpacing = (-0.3).sp,
-                                                maxLines = 1,
-                                            )
-                                            AnimatedContent(
-                                                targetState = itemCount,
-                                                transitionSpec = {
-                                                    fadeIn(tween(200, easing = FastOutSlowInEasing))
-                                                        .togetherWith(fadeOut(tween(130)))
-                                                },
-                                                label = "GalleryItemCountAnim",
-                                            ) { count ->
+                                        Text(
+                                            text = stringResource(R.string.gallery_title),
+                                            color = colors.text,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = (-0.2).sp,
+                                            maxLines = 1,
+                                        )
+                                        AnimatedContent(
+                                            targetState = itemCount,
+                                            transitionSpec = {
+                                                fadeIn(tween(200, easing = FastOutSlowInEasing))
+                                                    .togetherWith(fadeOut(tween(130)))
+                                            },
+                                            label = "GalleryItemCountAnim",
+                                        ) { count ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(CircleShape)
+                                                    .background(colors.panelHi.copy(alpha = 0.82f))
+                                                    .padding(horizontal = 7.dp, vertical = 2.dp),
+                                            ) {
                                                 Text(
-                                                    text = stringResource(R.string.gallery_items_count, count),
-                                                    color = colors.subText.copy(alpha = 0.85f),
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = FontWeight.Medium,
+                                                    text = "$count",
+                                                    color = colors.subText,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold,
                                                     style = TextStyle(fontFeatureSettings = "tnum"),
                                                 )
                                             }
@@ -500,6 +527,7 @@ internal fun GalleryFloatingHeader(
                                     }
                                 }
                             }
+                        }
                         }
 
                         Spacer(Modifier.width(12.dp))
@@ -531,122 +559,200 @@ internal fun GalleryFloatingHeader(
                                 )
                             } else {
                                 Row(
-                                    modifier = Modifier
-                                        .height(42.dp)
-                                        .homeLiquidGlassSurface(
-                                            colors = colors,
-                                            shape = CircleShape,
-                                            hazeState = hazeState,
-                                        )
-                                        .padding(horizontal = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    CollabStatusButton(
-                                        vm = vm,
-                                        compact = !vm.collab.isActive,
-                                    )
+                                    if (isWide) {
+                                        val selectPillInteraction = remember { MutableInteractionSource() }
+                                        Row(
+                                            modifier = Modifier
+                                                .height(42.dp)
+                                                .pressScale(selectPillInteraction, pressedScale = 0.94f)
+                                                .homeLiquidGlassSurface(
+                                                    colors = colors,
+                                                    shape = CircleShape,
+                                                    hazeState = hazeState,
+                                                )
+                                                .liquidHighlight(
+                                                    selectPillInteraction,
+                                                    if (colors.isDarkTheme()) Color.White else colors.accent,
+                                                    radius = 30.dp,
+                                                )
+                                                .clickable(
+                                                    interactionSource = selectPillInteraction,
+                                                    indication = null,
+                                                    onClick = onEnterSelectMode,
+                                                )
+                                                .padding(horizontal = 14.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_circle_check),
+                                                contentDescription = null,
+                                                tint = colors.icon,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                            Text(
+                                                text = stringResource(R.string.gallery_select),
+                                                color = colors.text,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Medium,
+                                            )
+                                        }
+                                    }
 
-                                    GalleryHeaderIconButton(
-                                        iconRes = R.drawable.ic_search,
-                                        contentDescription = stringResource(R.string.common_search),
-                                        colors = colors,
-                                        onClick = onOpenSearch,
-                                    )
-
-                                    Box {
-                                        GalleryHeaderIconButton(
-                                            iconRes = R.drawable.ic_dots_vertical,
-                                            contentDescription = stringResource(R.string.common_more),
-                                            colors = colors,
-                                            onClick = { onToggleMoreMenu(true) },
+                                    Row(
+                                        modifier = Modifier
+                                            .height(42.dp)
+                                            .homeLiquidGlassSurface(
+                                                colors = colors,
+                                                shape = CircleShape,
+                                                hazeState = hazeState,
+                                            )
+                                            .padding(horizontal = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        CollabStatusButton(
+                                            vm = vm,
+                                            compact = !vm.collab.isActive,
                                         )
 
-                                        ReDropdownMenu(
-                                            expanded = showMoreMenu,
-                                            onDismissRequest = { onToggleMoreMenu(false) },
-                                        ) {
-                                            ReDropdownMenuItem(
-                                                text = stringResource(R.string.common_import),
-                                                icon = R.drawable.ic_import,
-                                                onClick = {
-                                                    onToggleMoreMenu(false)
-                                                    onImportClick()
-                                                },
-                                            )
-                                            ReDropdownMenuItem(
-                                                text = stringResource(R.string.gallery_select),
-                                                icon = R.drawable.ic_circle_check,
-                                                onClick = {
-                                                    onToggleMoreMenu(false)
-                                                    onEnterSelectMode()
-                                                },
-                                            )
-                                            ReDropdownMenuItem(
-                                                text = stringResource(R.string.gallery_new_stack),
-                                                icon = R.drawable.ic_folder_plus,
-                                                onClick = {
-                                                    onToggleMoreMenu(false)
-                                                    onNewStackClick()
-                                                },
-                                            )
+                                        GalleryHeaderIconButton(
+                                            iconRes = R.drawable.ic_search,
+                                            contentDescription = stringResource(R.string.common_search),
+                                            colors = colors,
+                                            onClick = onOpenSearch,
+                                        )
 
-                                            GalleryMenuDivider(colors)
-
-                                            Text(
-                                                text = stringResource(R.string.gallery_sort_title),
-                                                color = colors.subText,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                                            )
-
-                                            SortMenuOption(
-                                                label = stringResource(R.string.gallery_sort_modified),
-                                                selected = vm.gallerySortMode == "MODIFIED",
+                                        Box {
+                                            GalleryHeaderIconButton(
+                                                iconRes = R.drawable.ic_dots_vertical,
+                                                contentDescription = stringResource(R.string.common_more),
                                                 colors = colors,
-                                                onClick = {
-                                                    onToggleMoreMenu(false)
-                                                    onSelectSortMode("MODIFIED")
-                                                },
-                                            )
-                                            SortMenuOption(
-                                                label = stringResource(R.string.gallery_sort_name),
-                                                selected = vm.gallerySortMode == "NAME",
-                                                colors = colors,
-                                                onClick = {
-                                                    onToggleMoreMenu(false)
-                                                    onSelectSortMode("NAME")
-                                                },
-                                            )
-                                            SortMenuOption(
-                                                label = stringResource(R.string.gallery_sort_strokes),
-                                                selected = vm.gallerySortMode == "STROKES",
-                                                colors = colors,
-                                                onClick = {
-                                                    onToggleMoreMenu(false)
-                                                    onSelectSortMode("STROKES")
-                                                },
+                                                onClick = { onToggleMoreMenu(true) },
                                             )
 
-                                            GalleryMenuDivider(colors)
+                                            ReDropdownMenu(
+                                                expanded = showMoreMenu,
+                                                onDismissRequest = { onToggleMoreMenu(false) },
+                                            ) {
+                                                ReDropdownMenuItem(
+                                                    text = stringResource(R.string.common_import),
+                                                    icon = R.drawable.ic_import,
+                                                    onClick = {
+                                                        onToggleMoreMenu(false)
+                                                        onImportClick()
+                                                    },
+                                                )
+                                                ReDropdownMenuItem(
+                                                    text = stringResource(R.string.gallery_select),
+                                                    icon = R.drawable.ic_circle_check,
+                                                    onClick = {
+                                                        onToggleMoreMenu(false)
+                                                        onEnterSelectMode()
+                                                    },
+                                                )
+                                                ReDropdownMenuItem(
+                                                    text = stringResource(R.string.gallery_new_stack),
+                                                    icon = R.drawable.ic_folder_plus,
+                                                    onClick = {
+                                                        onToggleMoreMenu(false)
+                                                        onNewStackClick()
+                                                    },
+                                                )
 
-                                            ReDropdownMenuItem(
-                                                text = stringResource(R.string.auto_save_history_title),
-                                                icon = R.drawable.ic_clock,
-                                                onClick = {
-                                                    onToggleMoreMenu(false)
-                                                    onAutoSaveHistoryClick()
-                                                },
-                                            )
-                                            ReDropdownMenuItem(
-                                                text = stringResource(R.string.gallery_refresh),
-                                                icon = R.drawable.ic_refresh,
-                                                onClick = {
-                                                    onToggleMoreMenu(false)
-                                                    onRefreshClick()
-                                                },
-                                            )
+                                                GalleryMenuDivider(colors)
+
+                                                Text(
+                                                    text = stringResource(R.string.gallery_card_size_title),
+                                                    color = colors.subText,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                                )
+
+                                                GalleryCardSizeSelector(
+                                                    selectedSize = vm.galleryCardSize,
+                                                    colors = colors,
+                                                    onSelectSize = onSelectCardSize,
+                                                )
+
+                                                ReDropdownMenuItem(
+                                                    text = stringResource(R.string.gallery_show_card_meta),
+                                                    icon = R.drawable.ic_info_circle,
+                                                    selected = vm.galleryShowCardMeta,
+                                                    trailingIcon = if (vm.galleryShowCardMeta) {
+                                                        {
+                                                            Icon(
+                                                                painter = painterResource(R.drawable.ic_check),
+                                                                contentDescription = null,
+                                                                tint = colors.accent,
+                                                                modifier = Modifier.size(15.dp),
+                                                            )
+                                                        }
+                                                    } else null,
+                                                    onClick = { onToggleShowCardMeta(!vm.galleryShowCardMeta) },
+                                                )
+
+                                                GalleryMenuDivider(colors)
+
+                                                Text(
+                                                    text = stringResource(R.string.gallery_sort_title),
+                                                    color = colors.subText,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                                )
+
+                                                SortMenuOption(
+                                                    label = stringResource(R.string.gallery_sort_modified),
+                                                    selected = vm.gallerySortMode == "MODIFIED",
+                                                    colors = colors,
+                                                    onClick = {
+                                                        onToggleMoreMenu(false)
+                                                        onSelectSortMode("MODIFIED")
+                                                    },
+                                                )
+                                                SortMenuOption(
+                                                    label = stringResource(R.string.gallery_sort_name),
+                                                    selected = vm.gallerySortMode == "NAME",
+                                                    colors = colors,
+                                                    onClick = {
+                                                        onToggleMoreMenu(false)
+                                                        onSelectSortMode("NAME")
+                                                    },
+                                                )
+                                                SortMenuOption(
+                                                    label = stringResource(R.string.gallery_sort_strokes),
+                                                    selected = vm.gallerySortMode == "STROKES",
+                                                    colors = colors,
+                                                    onClick = {
+                                                        onToggleMoreMenu(false)
+                                                        onSelectSortMode("STROKES")
+                                                    },
+                                                )
+
+                                                GalleryMenuDivider(colors)
+
+                                                ReDropdownMenuItem(
+                                                    text = stringResource(R.string.auto_save_history_title),
+                                                    icon = R.drawable.ic_clock,
+                                                    onClick = {
+                                                        onToggleMoreMenu(false)
+                                                        onAutoSaveHistoryClick()
+                                                    },
+                                                )
+                                                ReDropdownMenuItem(
+                                                    text = stringResource(R.string.gallery_refresh),
+                                                    icon = R.drawable.ic_refresh,
+                                                    onClick = {
+                                                        onToggleMoreMenu(false)
+                                                        onRefreshClick()
+                                                    },
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -681,6 +787,56 @@ private fun SortMenuOption(
         } else null,
         onClick = onClick,
     )
+}
+
+@Composable
+private fun GalleryCardSizeSelector(
+    selectedSize: String,
+    colors: AppColors,
+    onSelectSize: (String) -> Unit,
+) {
+    val options = listOf(
+        "COMPACT" to stringResource(R.string.gallery_card_size_compact),
+        "STANDARD" to stringResource(R.string.gallery_card_size_standard),
+        "LARGE" to stringResource(R.string.gallery_card_size_large),
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .height(34.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.panel.copy(alpha = 0.72f))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        options.forEach { (key, label) ->
+            val selected = selectedSize == key
+            val interaction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pressScale(interaction, pressedScale = 0.94f)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(if (selected) colors.accent else Color.Transparent)
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                    ) { onSelectSize(key) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label,
+                    color = if (selected) colors.onAccent else colors.subText,
+                    fontSize = 11.5.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
 }
 
 @Composable

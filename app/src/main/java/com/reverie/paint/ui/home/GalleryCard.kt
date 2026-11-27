@@ -7,6 +7,10 @@ package com.reverie.paint.ui.home
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -17,6 +21,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -51,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.model.Project
 import com.reverie.paint.model.UiAnimationSpeed
+import com.reverie.paint.ui.components.liquidSheen
 import com.reverie.paint.ui.theme.AppColors
 import com.reverie.paint.ui.theme.Motion
 import com.reverie.paint.ui.theme.blendColors
@@ -148,6 +155,7 @@ internal fun ArtworkThumbnailBox(
     isSelected: Boolean = false,
     isSelectMode: Boolean = false,
     isFolderCover: Boolean = false,
+    isMergePending: Boolean = false,
     isMergeTarget: Boolean = false,
     colors: AppColors,
     modifier: Modifier = Modifier,
@@ -168,10 +176,25 @@ internal fun ArtworkThumbnailBox(
         label = "ThumbFade",
     )
 
+    // 400ms 互叠合并倒计时进度环
+    val mergeProgress = remember { Animatable(0f) }
+    LaunchedEffect(isMergePending) {
+        if (isMergePending) {
+            mergeProgress.snapTo(0f)
+            mergeProgress.animateTo(1f, tween(400, easing = LinearEasing))
+        } else {
+            mergeProgress.snapTo(0f)
+        }
+    }
+
     // 拖拽互叠合并提示脉冲光圈
     val mergePulse by animateFloatAsState(
-        targetValue = if (isMergeTarget) 1.05f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (isMergeTarget) 1.07f else 1.0f,
+        animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+            snap()
+        } else {
+            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+        },
         label = "MergePulse",
     )
 
@@ -196,8 +219,13 @@ internal fun ArtworkThumbnailBox(
             modifier = Modifier
                 .fillMaxSize(0.92f)
                 .graphicsLayer {
-                    scaleX = mergePulse
-                    scaleY = mergePulse
+                    val pendingScale = if (isMergePending) 1f + 0.035f * mergeProgress.value else 1f
+                    val s = mergePulse * pendingScale
+                    scaleX = s
+                    scaleY = s
+                    if (isMergePending) {
+                        rotationZ = 3.5f * mergeProgress.value
+                    }
                 }
                 .aspectRatio(rawRatio, matchHeightConstraintsFirst = rawRatio < 1.0f)
                 .shadow(
@@ -212,10 +240,11 @@ internal fun ArtworkThumbnailBox(
                     clip = false,
                 )
                 .clip(artShape)
+                .liquidSheen(trigger = isSelected)
                 .background(backdropColor)
                 .drawWithContent {
                     drawContent()
-                    if (!isMergeTarget && cardRingWidth <= 0.dp) {
+                    if (!isMergeTarget && !isMergePending && cardRingWidth <= 0.dp) {
                         val strokePx = 0.75.dp.toPx()
                         val outline = artShape.createOutline(size, layoutDirection, this)
                         drawOutline(
@@ -228,6 +257,8 @@ internal fun ArtworkThumbnailBox(
                 .then(
                     if (isMergeTarget) {
                         Modifier.border(2.5.dp, colors.accent, artShape)
+                    } else if (isMergePending) {
+                        Modifier.border(1.5.dp, colors.accent.copy(alpha = 0.45f + 0.45f * mergeProgress.value), artShape)
                     } else if (cardRingWidth > 0.dp) {
                         Modifier.border(cardRingWidth, colors.accent, artShape)
                     } else {
@@ -335,6 +366,46 @@ internal fun ArtworkThumbnailBox(
             )
         }
 
+        // 400ms 合并蓄力环形进度指示
+        AnimatedVisibility(
+            visible = isMergePending && !isMergeTarget,
+            enter = scaleIn(initialScale = 0.75f, animationSpec = tween(120)) + fadeIn(tween(120)),
+            exit = fadeOut(tween(80)),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .shadow(8.dp, CircleShape, clip = false)
+                    .clip(CircleShape)
+                    .background(colors.panel.copy(alpha = 0.94f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                val trackColor = colors.accent.copy(alpha = 0.22f)
+                val arcColor = colors.accent
+                Canvas(modifier = Modifier.fillMaxSize().padding(3.5.dp)) {
+                    val strokeW = 2.5.dp.toPx()
+                    drawCircle(
+                        color = trackColor,
+                        style = Stroke(width = strokeW),
+                    )
+                    drawArc(
+                        color = arcColor,
+                        startAngle = -90f,
+                        sweepAngle = 360f * mergeProgress.value,
+                        useCenter = false,
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round),
+                    )
+                }
+                Icon(
+                    painter = painterResource(R.drawable.ic_folder_plus),
+                    contentDescription = null,
+                    tint = colors.accent,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+
         // 互叠合成新画集浮动提示徽章
         AnimatedVisibility(
             visible = isMergeTarget,
@@ -435,8 +506,9 @@ internal fun FolderThumbnailBox(
     val isDark = colors.isDarkTheme()
     val stackShape = RoundedCornerShape(12.dp)
     val hairlineBrush = remember(isDark) { artboardHairlineBrush(colors) }
-    val back1Fill = if (isDark) blendColors(colors.panelHi, colors.bg, 0.35f) else blendColors(colors.panel, Color.Black, 0.05f)
-    val back2Fill = if (isDark) colors.panelHi else colors.panel
+    val backHairlineColor = if (isDark) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.12f)
+    val back1Fill = if (isDark) blendColors(colors.panelHi, Color.White, 0.08f) else blendColors(colors.panel, Color.Black, 0.07f)
+    val back2Fill = if (isDark) blendColors(colors.panelHi, Color.White, 0.14f) else blendColors(colors.panel, Color.Black, 0.03f)
     val frontFill = if (thumb0 != null) {
         if (isDark) colors.panelHi else Color.White
     } else {
@@ -449,25 +521,25 @@ internal fun FolderThumbnailBox(
             .aspectRatio(1f),
         contentAlignment = Alignment.Center,
     ) {
-        // Stacked layer 1 (底左微倾)
+        // Stacked layer 1 (左后散落卡片 — 适配 160dp 网格的清晰露角)
         Box(
             modifier = Modifier
-                .fillMaxSize(0.86f)
+                .fillMaxSize(0.83f)
                 .aspectRatio(ratio2, matchHeightConstraintsFirst = ratio2 < 1.0f)
                 .graphicsLayer {
-                    rotationZ = -6.5f - 5f * fanPress
-                    translationX = (-6).dp.toPx() - 4.5.dp.toPx() * fanPress
-                    translationY = 3.5.dp.toPx() + 2.5.dp.toPx() * fanPress
+                    rotationZ = -7.5f - 7.5f * fanPress
+                    translationX = (-6.5).dp.toPx() - 6.dp.toPx() * fanPress
+                    translationY = (-2.5).dp.toPx() - 4.dp.toPx() * fanPress
                 }
                 .shadow(
-                    elevation = if (isDark) 6.dp else 4.dp,
+                    elevation = if (isDark) 7.dp else 5.dp,
                     shape = stackShape,
-                    spotColor = Color.Black.copy(alpha = if (isDark) 0.36f else 0.12f),
+                    spotColor = Color.Black.copy(alpha = if (isDark) 0.40f else 0.14f),
                     clip = false,
                 )
                 .clip(stackShape)
                 .background(back1Fill)
-                .border(0.5.dp, hairlineBrush, stackShape),
+                .border(0.75.dp, backHairlineColor, stackShape),
             contentAlignment = Alignment.Center,
         ) {
             if (thumb2 != null) {
@@ -485,25 +557,25 @@ internal fun FolderThumbnailBox(
             }
         }
 
-        // Stacked layer 2 (中右微倾)
+        // Stacked layer 2 (右后散落卡片 — 适配 160dp 网格的清晰露角)
         Box(
             modifier = Modifier
-                .fillMaxSize(0.88f)
+                .fillMaxSize(0.84f)
                 .aspectRatio(ratio1, matchHeightConstraintsFirst = ratio1 < 1.0f)
                 .graphicsLayer {
-                    rotationZ = 5.5f + 4.5f * fanPress
-                    translationX = 5.5.dp.toPx() + 4.5.dp.toPx() * fanPress
-                    translationY = (-2.5).dp.toPx() - 2.dp.toPx() * fanPress
+                    rotationZ = 6.5f + 6.5f * fanPress
+                    translationX = 6.5.dp.toPx() + 6.dp.toPx() * fanPress
+                    translationY = (-2).dp.toPx() - 3.dp.toPx() * fanPress
                 }
                 .shadow(
-                    elevation = if (isDark) 8.dp else 6.dp,
+                    elevation = if (isDark) 9.dp else 7.dp,
                     shape = stackShape,
-                    spotColor = Color.Black.copy(alpha = if (isDark) 0.40f else 0.14f),
+                    spotColor = Color.Black.copy(alpha = if (isDark) 0.44f else 0.16f),
                     clip = false,
                 )
                 .clip(stackShape)
                 .background(back2Fill)
-                .border(0.5.dp, hairlineBrush, stackShape),
+                .border(0.75.dp, backHairlineColor, stackShape),
             contentAlignment = Alignment.Center,
         ) {
             if (thumb1 != null) {
@@ -530,19 +602,20 @@ internal fun FolderThumbnailBox(
         )
         Box(
             modifier = Modifier
-                .fillMaxSize(0.92f)
+                .fillMaxSize(0.87f)
                 .aspectRatio(ratio0, matchHeightConstraintsFirst = ratio0 < 1.0f)
                 .graphicsLayer {
-                    rotationZ = -0.5f - 0.8f * fanPress
-                    translationY = -2.5.dp.toPx() * coverHoverLift
+                    rotationZ = -0.5f - 1.3f * fanPress
+                    translationY = 2.dp.toPx() - 4.dp.toPx() * fanPress - 2.dp.toPx() * coverHoverLift
                 }
                 .shadow(
-                    elevation = if (isDark) 12.dp else 9.dp,
+                    elevation = if (isDark) 13.dp else 10.dp,
                     shape = stackShape,
-                    spotColor = Color.Black.copy(alpha = if (isDark) 0.44f else 0.16f),
+                    spotColor = Color.Black.copy(alpha = if (isDark) 0.48f else 0.18f),
                     clip = false,
                 )
                 .clip(stackShape)
+                .liquidSheen(trigger = isSelected)
                 .background(frontFill)
                 .drawWithContent {
                     drawContent()
@@ -607,26 +680,6 @@ internal fun FolderThumbnailBox(
                 }
             }
 
-            // 画集数量角标 (贴合顶层主封面右上角)
-            GalleryMicroBadge(
-                text = "${project.items.size}",
-                iconRes = R.drawable.ic_folders,
-                containerColor = if (thumb0 != null) {
-                    Color(0xFF141418).copy(alpha = 0.68f)
-                } else {
-                    colors.panel.copy(alpha = 0.92f)
-                },
-                contentColor = if (thumb0 != null) Color.White else colors.text,
-                borderColor = if (thumb0 != null) {
-                    Color.White.copy(alpha = 0.16f)
-                } else {
-                    (if (isDark) Color.White else Color.Black).copy(alpha = 0.10f)
-                },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(6.dp),
-            )
-
             // 多选模式勾选角标 (贴合顶层主封面右下角)
             CardSelectionBadge(
                 isSelectMode = isSelectMode,
@@ -685,6 +738,7 @@ internal fun CardMetaSection(
     colors: AppColors,
     onRenameClick: () -> Unit,
     onLongClick: () -> Unit = {},
+    showDetails: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val justNowLabel = stringResource(R.string.gallery_time_just_now)
@@ -723,75 +777,83 @@ internal fun CardMetaSection(
             )
         }
 
-        Spacer(Modifier.height(2.dp))
+        // 副标题行: 居中展示尺寸、笔画或相对时间 / 自动保存状态 / 画集作品数 (可由右上角菜单切换显隐)
+        AnimatedVisibility(
+            visible = showDetails,
+            enter = expandVertically(tween(180)) + fadeIn(tween(180)),
+            exit = shrinkVertically(tween(140)) + fadeOut(tween(120)),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.height(2.dp))
 
-        // 副标题行: 居中展示尺寸、笔画或相对时间 / 自动保存状态 / 画集作品数
-        val autoSavedText = stringResource(R.string.gallery_status_autosave)
-        val dimenFormat = stringResource(R.string.gallery_dimen_px)
-        val dimenText = remember(project.width, project.height, project.isFolder, dimenFormat) {
-            if (!project.isFolder && project.width > 0 && project.height > 0) {
-                String.format(Locale.getDefault(), dimenFormat, project.width, project.height)
-            } else {
-                null
-            }
-        }
-
-        if (project.isFolder) {
-            Text(
-                text = stringResource(R.string.gallery_stack_artworks_count, project.items.size),
-                color = colors.subText.copy(alpha = 0.82f),
-                fontSize = 11.sp,
-                style = TextStyle(fontFeatureSettings = "tnum"),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        } else if (project.isAutoSaved) {
-            val info = if (dimenText != null) "$dimenText · $autoSavedText" else autoSavedText
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(5.dp)
-                        .clip(CircleShape)
-                        .background(colors.accent),
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    text = info,
-                    color = colors.accent,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    style = TextStyle(fontFeatureSettings = "tnum"),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        } else {
-            val secondaryMeta = when {
-                project.strokeCount > 0 -> stringResource(R.string.gallery_stroke_count, project.strokeCount)
-                project.lastModified > 0L -> remember(project.lastModified, justNowLabel) {
-                    formatRelativeModifiedTime(
-                        timestampMs = project.lastModified,
-                        justNow = justNowLabel,
-                        minsFormat = minsAgoFormat,
-                        hoursFormat = hoursAgoFormat,
-                        daysFormat = daysAgoFormat,
-                    )
+                val autoSavedText = stringResource(R.string.gallery_status_autosave)
+                val dimenFormat = stringResource(R.string.gallery_dimen_px)
+                val dimenText = remember(project.width, project.height, project.isFolder, dimenFormat) {
+                    if (!project.isFolder && project.width > 0 && project.height > 0) {
+                        String.format(Locale.getDefault(), dimenFormat, project.width, project.height)
+                    } else {
+                        null
+                    }
                 }
-                else -> null
-            }
-            val metaLine = listOfNotNull(dimenText, secondaryMeta).joinToString(" · ")
-            if (metaLine.isNotEmpty()) {
-                Text(
-                    text = metaLine,
-                    color = colors.subText.copy(alpha = 0.80f),
-                    fontSize = 11.sp,
-                    style = TextStyle(fontFeatureSettings = "tnum"),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+
+                if (project.isFolder) {
+                    Text(
+                        text = stringResource(R.string.gallery_stack_artworks_count, project.items.size),
+                        color = colors.subText.copy(alpha = 0.82f),
+                        fontSize = 11.sp,
+                        style = TextStyle(fontFeatureSettings = "tnum"),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else if (project.isAutoSaved) {
+                    val info = if (dimenText != null) "$dimenText · $autoSavedText" else autoSavedText
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(colors.accent),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = info,
+                            color = colors.accent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            style = TextStyle(fontFeatureSettings = "tnum"),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                } else {
+                    val secondaryMeta = when {
+                        project.strokeCount > 0 -> stringResource(R.string.gallery_stroke_count, project.strokeCount)
+                        project.lastModified > 0L -> remember(project.lastModified, justNowLabel) {
+                            formatRelativeModifiedTime(
+                                timestampMs = project.lastModified,
+                                justNow = justNowLabel,
+                                minsFormat = minsAgoFormat,
+                                hoursFormat = hoursAgoFormat,
+                                daysFormat = daysAgoFormat,
+                            )
+                        }
+                        else -> null
+                    }
+                    val metaLine = listOfNotNull(dimenText, secondaryMeta).joinToString(" · ")
+                    if (metaLine.isNotEmpty()) {
+                        Text(
+                            text = metaLine,
+                            color = colors.subText.copy(alpha = 0.80f),
+                            fontSize = 11.sp,
+                            style = TextStyle(fontFeatureSettings = "tnum"),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
         }
     }

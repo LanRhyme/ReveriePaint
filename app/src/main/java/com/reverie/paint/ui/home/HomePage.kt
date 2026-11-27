@@ -449,17 +449,15 @@ fun HomePage(vm: PaintViewModel) {
     }
 
     Box(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(colors.bg),
+        modifier = Modifier.fillMaxSize(),
     ) {
-        // 背景与主内容作为 haze 源层，与悬浮底栏保持兄弟层级以正确采样实时模糊
+        // 背景与主内容作为 haze 源层，将 bg 置于 hazeSource 内部确保采样不透底，与悬浮顶底栏保持兄弟层级
         Box(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .then(if (vm.blurBackground) Modifier.hazeSource(hazeState) else Modifier),
+                    .then(if (vm.blurBackground) Modifier.hazeSource(hazeState) else Modifier)
+                    .background(colors.bg),
         ) {
             if (homeBgBitmap != null && vm.homeCustomBgEnabled) {
                 val scale = if (vm.homeCustomBgScaleMode == "FIT") ContentScale.Fit else ContentScale.Crop
@@ -512,12 +510,28 @@ fun HomePage(vm: PaintViewModel) {
             if (tabIndex == 0) {
                 val density = LocalDensity.current
                 val config = LocalConfiguration.current
-                val isWideScreen = config.screenWidthDp >= 600
-                val gridMinCell = if (isWideScreen) 184.dp else 152.dp
-                val gridHPadding = if (isWideScreen) 24.dp else 16.dp
-                val gridHSpacing = if (isWideScreen) 22.dp else 16.dp
-                val gridVSpacing = if (isWideScreen) 24.dp else 20.dp
-                val topContentInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 74.dp
+                val isTabletWidth = config.screenWidthDp >= 600
+                val gridMinCell = when (vm.galleryCardSize) {
+                    "COMPACT" -> if (isTabletWidth) 156.dp else 150.dp
+                    "LARGE" -> if (isTabletWidth) 224.dp else 220.dp
+                    else -> if (isTabletWidth) 182.dp else 164.dp
+                }
+                val gridHPadding = when (vm.galleryCardSize) {
+                    "COMPACT" -> 16.dp
+                    "LARGE" -> if (isTabletWidth) 22.dp else 16.dp
+                    else -> if (isTabletWidth) 18.dp else 16.dp
+                }
+                val gridHSpacing = when (vm.galleryCardSize) {
+                    "COMPACT" -> 16.dp
+                    "LARGE" -> if (isTabletWidth) 22.dp else 16.dp
+                    else -> if (isTabletWidth) 18.dp else 16.dp
+                }
+                val gridVSpacing = when (vm.galleryCardSize) {
+                    "COMPACT" -> 18.dp
+                    "LARGE" -> if (isTabletWidth) 24.dp else 22.dp
+                    else -> if (isTabletWidth) 20.dp else 18.dp
+                }
+                val topContentInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 72.dp
                 val bottomContentInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 110.dp
                 val showCollabBanner = vm.collab.showRecoveryBanner && vm.collab.recoverableSession != null && !vm.collab.isActive
 
@@ -528,7 +542,7 @@ fun HomePage(vm: PaintViewModel) {
                 val folderOrigin = TransformOrigin(folderPivotX, folderPivotY)
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    // 画集原位展开/收拢: 以点击卡片屏幕锚点为中心扩散撑开/聚拢归位 (Full-bleed scroll under floating header)
+                    // 画集原位展开/收拢: Procreate 放射式弹性破界展开与收拢归位
                     AnimatedContent(
                         targetState = currentFolder?.filePath,
                         transitionSpec = {
@@ -538,48 +552,48 @@ fun HomePage(vm: PaintViewModel) {
                                     if (targetState != null) {
                                         (
                                             fadeIn(tween(100)) +
-                                                scaleIn(tween(100), initialScale = 0.84f, transformOrigin = folderOrigin)
+                                                scaleIn(tween(100), initialScale = 0.72f, transformOrigin = folderOrigin)
                                         ).togetherWith(
-                                            fadeOut(tween(80)) + scaleOut(tween(80), targetScale = 1.03f),
+                                            fadeOut(tween(80)) + scaleOut(tween(80), targetScale = 1.05f),
                                         )
                                     } else {
                                         (
                                             fadeIn(tween(100)) +
-                                                scaleIn(tween(100), initialScale = 1.03f)
+                                                scaleIn(tween(100), initialScale = 1.05f)
                                         ).togetherWith(
                                             fadeOut(tween(80)) +
-                                                scaleOut(tween(80), targetScale = 0.84f, transformOrigin = folderOrigin),
+                                                scaleOut(tween(80), targetScale = 0.72f, transformOrigin = folderOrigin),
                                         )
                                     }
                                 }
                                 UiAnimationSpeed.NORMAL -> {
                                     if (targetState != null) {
                                         (
-                                            fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+                                            fadeIn(tween(240, easing = FastOutSlowInEasing)) +
                                                 scaleIn(
-                                                    animationSpec = spring(dampingRatio = 0.86f, stiffness = 400f),
-                                                    initialScale = 0.78f,
+                                                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 360f),
+                                                    initialScale = 0.56f,
                                                     transformOrigin = folderOrigin,
                                                 )
                                         ).togetherWith(
-                                            fadeOut(tween(140, easing = FastOutSlowInEasing)) +
+                                            fadeOut(tween(160, easing = FastOutSlowInEasing)) +
                                                 scaleOut(
-                                                    animationSpec = tween(170, easing = FastOutSlowInEasing),
-                                                    targetScale = 1.04f,
+                                                    animationSpec = tween(200, easing = FastOutSlowInEasing),
+                                                    targetScale = 1.10f,
                                                 ),
                                         )
                                     } else {
                                         (
-                                            fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+                                            fadeIn(tween(240, easing = FastOutSlowInEasing)) +
                                                 scaleIn(
-                                                    animationSpec = tween(200, easing = FastOutSlowInEasing),
-                                                    initialScale = 1.04f,
+                                                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                                    initialScale = 1.08f,
                                                 )
                                         ).togetherWith(
-                                            fadeOut(tween(140, easing = FastOutSlowInEasing)) +
+                                            fadeOut(tween(160, easing = FastOutSlowInEasing)) +
                                                 scaleOut(
-                                                    animationSpec = spring(dampingRatio = 0.86f, stiffness = 420f),
-                                                    targetScale = 0.78f,
+                                                    animationSpec = spring(dampingRatio = 0.84f, stiffness = 420f),
+                                                    targetScale = 0.56f,
                                                     transformOrigin = folderOrigin,
                                                 ),
                                         )
@@ -726,14 +740,19 @@ fun HomePage(vm: PaintViewModel) {
                                         val cardRingWidth = maxOf(borderStrokeWidth, holdRingWidth)
 
                                         val isFolderHovered = p.isFolder && hoveredFolderKey == p.filePath
-                                        // 画集卡片按压或拖拽悬停扇形展开: 单个进度驱动三层, 数值只在图层阶段读取
+                                        val isMergePendingTarget = !p.isFolder && hoveredMergeArtworkKey == p.filePath && !isMergeReady
+                                        val isMergeReadyTarget = !p.isFolder && hoveredMergeArtworkKey == p.filePath && isMergeReady
+                                        // 画集卡片按压或拖拽悬停扇形展开: 单个进度驱动三层, Procreate 宽幅弹性扇开
                                         val fanPress by animateFloatAsState(
                                             targetValue = if (isPressed || isFolderHovered) 1f else 0f,
-                                            animationSpec =
+                                            animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+                                                snap()
+                                            } else {
                                                 spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
+                                                    dampingRatio = 0.62f,
+                                                    stiffness = 360f,
+                                                )
+                                            },
                                             label = "FanPress",
                                         )
 
@@ -748,15 +767,39 @@ fun HomePage(vm: PaintViewModel) {
                                         )
 
                                         val isBeingDragged = draggingProject?.filePath == p.filePath
-                                        val dragSourceAlpha by animateFloatAsState(
-                                            targetValue = if (isBeingDragged) 0.26f else 1f,
+                                        val isDropFocus = isFolderHovered || isMergePendingTarget || isMergeReadyTarget
+                                        val dragFocusAlpha by animateFloatAsState(
+                                            targetValue = when {
+                                                isBeingDragged -> 0.22f
+                                                draggingProject != null && !isDropFocus -> 0.80f
+                                                else -> 1f
+                                            },
                                             animationSpec = tween(150),
-                                            label = "DragSourceAlpha",
+                                            label = "DragFocusAlpha",
                                         )
                                         val dragSourceScale by animateFloatAsState(
                                             targetValue = if (isBeingDragged) 0.92f else 1f,
                                             animationSpec = Motion.springSoft,
                                             label = "DragSourceScale",
+                                        )
+                                        var pressNormOffset by remember { mutableStateOf(Offset.Zero) }
+                                        val pressTiltX by animateFloatAsState(
+                                            targetValue = if (Motion.currentSpeed == UiAnimationSpeed.OFF) 0f else -pressNormOffset.y * 5.5f,
+                                            animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+                                                snap()
+                                            } else {
+                                                spring(dampingRatio = 0.72f, stiffness = 480f)
+                                            },
+                                            label = "CardTiltX",
+                                        )
+                                        val pressTiltY by animateFloatAsState(
+                                            targetValue = if (Motion.currentSpeed == UiAnimationSpeed.OFF) 0f else pressNormOffset.x * 5.5f,
+                                            animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+                                                snap()
+                                            } else {
+                                                spring(dampingRatio = 0.72f, stiffness = 480f)
+                                            },
+                                            label = "CardTiltY",
                                         )
                                         var itemCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
@@ -770,15 +813,18 @@ fun HomePage(vm: PaintViewModel) {
                                                         fadeOutSpec = tween(140, easing = FastOutSlowInEasing),
                                                     )
                                                     .graphicsLayer {
-                                                        // 入场/按压/选中/拖拽悬停全部在图层阶段取值, 逐帧不触发重组
+                                                        // 入场/按压/3D倾角/选中/拖拽悬停全部在图层阶段取值, 逐帧不触发重组
                                                         val enter = enterProgress.value.coerceIn(0f, 1f)
                                                         val scale =
                                                             (0.90f + 0.10f * enter) * cardPressScale *
                                                                 cardSelectScale * folderHoverScale * holdLiftScale * dragSourceScale
-                                                        alpha = (enter * 1.35f).coerceIn(0f, 1f) * dragSourceAlpha
+                                                        alpha = (enter * 1.35f).coerceIn(0f, 1f) * dragFocusAlpha
                                                         scaleX = scale
                                                         scaleY = scale
                                                         rotationZ = (1f - enter) * initialFanAngle
+                                                        rotationX = pressTiltX
+                                                        rotationY = pressTiltY
+                                                        cameraDistance = 12f * density.density
                                                         translationY = (1f - enter) * 16.dp.toPx()
                                                     }
                                                     .onGloballyPositioned { coords ->
@@ -1070,7 +1116,28 @@ fun HomePage(vm: PaintViewModel) {
                                                 modifier = Modifier.fillMaxWidth(),
                                             ) {
                                                 Box(
-                                                    modifier = cardModifier,
+                                                    modifier = Modifier
+                                                        .pointerInput(p.filePath) {
+                                                            awaitEachGesture {
+                                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                                val w = size.width.toFloat().coerceAtLeast(1f)
+                                                                val h = size.height.toFloat().coerceAtLeast(1f)
+                                                                pressNormOffset = Offset(
+                                                                    x = ((down.position.x / w) * 2f - 1f).coerceIn(-1f, 1f),
+                                                                    y = ((down.position.y / h) * 2f - 1f).coerceIn(-1f, 1f),
+                                                                )
+                                                                try {
+                                                                    while (true) {
+                                                                        val ev = awaitPointerEvent()
+                                                                        val ch = ev.changes.firstOrNull { it.id == down.id }
+                                                                        if (ch == null || !ch.pressed || ch.isConsumed) break
+                                                                    }
+                                                                } finally {
+                                                                    pressNormOffset = Offset.Zero
+                                                                }
+                                                            }
+                                                        }
+                                                        .then(cardModifier),
                                                 ) {
                                                     if (p.isFolder) {
                                                         FolderThumbnailBox(
@@ -1090,7 +1157,8 @@ fun HomePage(vm: PaintViewModel) {
                                                             isSelected = isSelected,
                                                             isSelectMode = isSelectMode,
                                                             isFolderCover = currentFolder != null && p.isFolderCover,
-                                                            isMergeTarget = hoveredMergeArtworkKey == p.filePath && isMergeReady,
+                                                            isMergePending = isMergePendingTarget,
+                                                            isMergeTarget = isMergeReadyTarget,
                                                             colors = colors,
                                                         )
                                                     }
@@ -1100,6 +1168,7 @@ fun HomePage(vm: PaintViewModel) {
                                                     project = p,
                                                     isSelectMode = isSelectMode,
                                                     colors = colors,
+                                                    showDetails = vm.galleryShowCardMeta,
                                                     onRenameClick = {
                                                         if (isSelectMode) {
                                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1348,6 +1417,8 @@ fun HomePage(vm: PaintViewModel) {
                 onAutoSaveHistoryClick = { showAutoSaveHistoryDialog = true },
                 onRefreshClick = { vm.refreshProjects() },
                 onSelectSortMode = { mode -> vm.updateGallerySortMode(mode) },
+                onSelectCardSize = { size -> vm.updateGalleryCardSize(size) },
+                onToggleShowCardMeta = { show -> vm.updateGalleryShowCardMeta(show) },
             )
         }
 

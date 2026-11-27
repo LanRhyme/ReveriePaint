@@ -7,6 +7,7 @@ package com.reverie.paint.ui.home
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
@@ -90,6 +91,17 @@ internal fun FloatingDragProxy(
         }
     }
 
+    // 阻尼弹簧惯性跟随: 赋予代理卡片真实物理质量感 (动效关闭时瞬时跟随)
+    val smoothTouchPos by animateOffsetAsState(
+        targetValue = dragTouchRootPos,
+        animationSpec = if (Motion.currentSpeed == UiAnimationSpeed.OFF) {
+            snap()
+        } else {
+            spring(dampingRatio = 0.88f, stiffness = 1400f)
+        },
+        label = "DragProxyFollowPos",
+    )
+
     // 拖拽速度响应惯性倾角: 水平移动时向运动反方向微倾, 停手后回正到静息微倾角 (-2.5°)
     var prevPos by remember(project.filePath) { mutableStateOf(dragTouchRootPos) }
     var targetTilt by remember(project.filePath) { mutableFloatStateOf(-2.5f) }
@@ -128,8 +140,8 @@ internal fun FloatingDragProxy(
             modifier = Modifier
                 .offset {
                     IntOffset(
-                        (dragTouchRootPos.x - halfSizePx).roundToInt(),
-                        (dragTouchRootPos.y - halfSizePx).roundToInt(),
+                        (smoothTouchPos.x - halfSizePx).roundToInt(),
+                        (smoothTouchPos.y - halfSizePx).roundToInt(),
                     )
                 }
                 .size(dragCardSize),
@@ -181,8 +193,9 @@ internal fun FloatingDragProxy(
                     .graphicsLayer {
                         rotationZ = tiltAngle
                         alpha = 0.95f
-                        scaleX = dragLift.value
-                        scaleY = dragLift.value
+                        val liftedScale = dragLift.value * 1.06f
+                        scaleX = liftedScale
+                        scaleY = liftedScale
                     }
                     .shadow(
                         elevation = if (isDark) 18.dp else 14.dp,

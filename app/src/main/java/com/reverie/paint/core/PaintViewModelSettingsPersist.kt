@@ -88,6 +88,30 @@ internal fun PaintViewModel.updateGallerySortMode(mode: String) {
     }
 }
 
+internal fun PaintViewModel.updateGalleryCardSize(size: String) {
+    val sanitized = when (size) {
+        "COMPACT", "STANDARD", "LARGE" -> size
+        else -> "STANDARD"
+    }
+    galleryCardSize = sanitized
+    if (isAppContextReady()) {
+        prefs
+            .edit()
+            .putString("galleryCardSize", sanitized)
+            .apply()
+    }
+}
+
+internal fun PaintViewModel.updateGalleryShowCardMeta(show: Boolean) {
+    galleryShowCardMeta = show
+    if (isAppContextReady()) {
+        prefs
+            .edit()
+            .putBoolean("galleryShowCardMeta", show)
+            .apply()
+    }
+}
+
 internal fun PaintViewModel.updateMaxUndoSteps(steps: Int) {
     maxUndoSteps = steps.coerceIn(10, 200)
     if (isAppContextReady()) {
@@ -232,6 +256,12 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
             "STROKES" -> "STROKES"
             else -> "MODIFIED"
         }
+        galleryCardSize = when (prefs.getString("galleryCardSize", "STANDARD")) {
+            "COMPACT" -> "COMPACT"
+            "LARGE" -> "LARGE"
+            else -> "STANDARD"
+        }
+        galleryShowCardMeta = prefs.getBoolean("galleryShowCardMeta", true)
         immersiveMode = true
         extendToCutout = prefs.getBoolean("extendToCutout", true)
         penOnlyMode = prefs.getBoolean("penOnlyMode", false)
