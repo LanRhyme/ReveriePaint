@@ -2,6 +2,24 @@
 
 [English](CHANGELOG.md) | [简体中文](CHANGELOG_ZH.md)
 
+## [v1.11.3] - 2026-11-28
+
+> **Community**: Join our official Discord server to share artworks, give feedback, and connect with other artists: https://discord.gg/METJeXY92t
+
+### Features
+- **Unified Full Color Picker**: Editing gradient stops and picking colors across layers, text, comic panels, onion skin, 3D shading sphere, and theme settings now opens the full 5-tab color picker with wheel, square, harmony, palettes, numeric sliders, and editable Hex codes
+- **Gallery Sorting & Card Size Controls**: Added persistent artwork sorting (Recently Modified, Name, Most Strokes), three gallery card size options, a details visibility toggle, and a full-width search bar
+
+### Bug Fixes
+- **Segmented Control Scroll Guard**: Prevented accidental tab switches when scrolling vertically past segmented selectors
+- **Crisp Zoom Default**: Turned off magnification interpolation by default so zoomed-in pixels stay sharp out of the box
+
+### Improvements
+- **Gallery Visuals & Motion Polish**: Upgraded the gallery with a floating frosted-glass header, improved bottom bar translucency, theme-adaptive artwork frames, and smoother drag-and-stack animations
+- **Press Glow & Toolbar Feedback**: Refined touch-press glow softness, light and dark theme adaptation, and behind-icon highlight feedback across toolbars and controls
+- **Collab Dialogs & Edge Feathering**: Streamlined collaborative room dialogs with cleaner single-line inputs and added soft top and bottom scroll feathering to settings pages and dialogs
+- **Extended Localization Completion**: Completed Traditional Chinese, Japanese, and Cat language translations for the new gallery sorting and card display options
+
 ## [v1.11.2] - 2026-11-27
 
 ### Features

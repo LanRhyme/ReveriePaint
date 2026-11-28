@@ -4445,4 +4445,19 @@
     <string name="collab_canvas_untitled">無題のキャンバス</string>
     <string name="collab_project_menu_host">この作品でコラボを開始</string>
     <string name="collab_existing_project_meta">%1$d × %2$d px · %3$d レイヤー</string>
+    <string name="gallery_sort_title">並び替え</string>
+    <string name="gallery_sort_modified">更新日時</string>
+    <string name="gallery_sort_name">名前順</string>
+    <string name="gallery_sort_strokes">ストローク数順</string>
+    <string name="gallery_empty_clear_search">検索をクリア</string>
+    <string name="gallery_time_minutes_ago">%d分前</string>
+    <string name="gallery_time_hours_ago">%d時間前</string>
+    <string name="gallery_time_days_ago">%d日前</string>
+    <string name="gallery_drag_exit_hint">ここへドラッグしてスタックから出す</string>
+    <string name="gallery_menu_sort">並び替え</string>
+    <string name="gallery_card_size_title">カードサイズ</string>
+    <string name="gallery_card_size_compact">小</string>
+    <string name="gallery_card_size_standard">中</string>
+    <string name="gallery_card_size_large">大</string>
+    <string name="gallery_show_card_meta">詳細を表示</string>
 </resources>

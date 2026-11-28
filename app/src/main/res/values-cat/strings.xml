@@ -4440,4 +4440,19 @@
     <string name="collab_canvas_untitled">没起名的小画纸</string>
     <string name="collab_project_menu_host">拎着这张画开茶绘猫窝</string>
     <string name="collab_existing_project_meta">%1$d × %2$d px · %3$d 个图层</string>
+    <string name="gallery_sort_title">排排坐方式</string>
+    <string name="gallery_sort_modified">刚画过的</string>
+    <string name="gallery_sort_name">按名字排</string>
+    <string name="gallery_sort_strokes">挠爪最多</string>
+    <string name="gallery_empty_clear_search">擦掉搜索词</string>
+    <string name="gallery_time_minutes_ago">%d 分钟前喵</string>
+    <string name="gallery_time_hours_ago">%d 小时前喵</string>
+    <string name="gallery_time_days_ago">%d 天前喵</string>
+    <string name="gallery_drag_exit_hint">叼到这里移出小窝</string>
+    <string name="gallery_menu_sort">排排坐</string>
+    <string name="gallery_card_size_title">卡片大小</string>
+    <string name="gallery_card_size_compact">小小块</string>
+    <string name="gallery_card_size_standard">刚刚好</string>
+    <string name="gallery_card_size_large">大大块</string>
+    <string name="gallery_show_card_meta">亮出画纸小名片</string>
 </resources>

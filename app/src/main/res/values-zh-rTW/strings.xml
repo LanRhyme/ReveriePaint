@@ -4440,4 +4440,19 @@
     <string name="collab_canvas_untitled">未命名畫布</string>
     <string name="collab_project_menu_host">從此畫布發起茶繪</string>
     <string name="collab_existing_project_meta">%1$d × %2$d px · %3$d 個圖層</string>
+    <string name="gallery_sort_title">排序方式</string>
+    <string name="gallery_sort_modified">最近修改</string>
+    <string name="gallery_sort_name">名稱排序</string>
+    <string name="gallery_sort_strokes">筆畫最多</string>
+    <string name="gallery_empty_clear_search">清除搜尋</string>
+    <string name="gallery_time_minutes_ago">%d 分鐘前</string>
+    <string name="gallery_time_hours_ago">%d 小時前</string>
+    <string name="gallery_time_days_ago">%d 天前</string>
+    <string name="gallery_drag_exit_hint">拖到此處移出畫集</string>
+    <string name="gallery_menu_sort">排序</string>
+    <string name="gallery_card_size_title">卡片尺寸</string>
+    <string name="gallery_card_size_compact">精簡</string>
+    <string name="gallery_card_size_standard">標準</string>
+    <string name="gallery_card_size_large">大圖</string>
+    <string name="gallery_show_card_meta">顯示作品詳情</string>
 </resources>
