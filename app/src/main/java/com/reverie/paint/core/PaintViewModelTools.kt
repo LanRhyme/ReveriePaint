@@ -161,6 +161,10 @@ internal fun PaintViewModel.touchStart(
         }
     }
 
+    // A new native stroke discards the engine redo branch. Drop its sidecar snapshots too.
+    anim.storyboard.pendingCueHistory =
+        com.reverie.paint.model.StoryboardHistory.discardRedoBranch(anim.storyboard.pendingCueHistory)
+
     // 物理橡皮擦末端 (TOOL_TYPE_ERASER) 或侧键临时擦除: 独立联动橡皮擦工具参数
     val isEraserOverride = toolOverride == "eraser" && currentToolId != "eraser"
     var eraserPresetIdx = -1
@@ -1765,9 +1769,57 @@ internal fun PaintViewModel.undo(
     }) {
         if (ReverieCoreBridge.canUndo()) {
             val beforeCount = ReverieCoreBridge.undoCount()
+            val storyboard = anim.storyboard
+            val history = storyboard.pendingCueHistory
+            val historyIndex = com.reverie.paint.model.StoryboardHistory.undoIndex(
+                entries = history,
+                generation = storyboard.generation,
+                undoCountBefore = beforeCount,
+                label = ReverieCoreBridge.undoText().orEmpty(),
+            )
+            val cueChange = history.getOrNull(historyIndex)?.payload
             Breadcrumbs.record("History", "Undo")
             ReverieCoreBridge.undo()
             didUndo = ReverieCoreBridge.undoCount() != beforeCount
+            if (didUndo && cueChange != null) {
+                when (cueChange) {
+                    is com.reverie.paint.core.PendingStoryboardCueChange.Delete -> {
+                        val times = storyboard.cueTimes.toMutableList()
+                        if (cueChange.allIndex in times.indices) {
+                            times[cueChange.allIndex] = cueChange.cueTime
+                            storyboard.cueTimes = times
+                            ReverieCoreBridge.storeRevAsset(
+                                SrtStoryboard.ASSET + ".frames",
+                                SrtStoryboard.encodeFrameTimes(times),
+                            )
+                            storyboard.pendingCueHistory =
+                                com.reverie.paint.model.StoryboardHistory.markUndone(
+                                    history,
+                                    historyIndex,
+                                    undone = true,
+                                )
+                        }
+                    }
+                    is com.reverie.paint.core.PendingStoryboardCueChange.Split -> {
+                        storyboard.allCues = cueChange.cuesBefore
+                        storyboard.cueTimes = cueChange.timesBefore
+                        ReverieCoreBridge.storeRevAsset(
+                            SrtStoryboard.ASSET,
+                            SrtStoryboard.encode(cueChange.cuesBefore),
+                        )
+                        ReverieCoreBridge.storeRevAsset(
+                            SrtStoryboard.ASSET + ".frames",
+                            SrtStoryboard.encodeFrameTimes(cueChange.timesBefore),
+                        )
+                        storyboard.pendingCueHistory =
+                            com.reverie.paint.model.StoryboardHistory.markUndone(
+                                history,
+                                historyIndex,
+                                undone = true,
+                            )
+                    }
+                }
+            }
             if (didUndo && restoreTransformSel) {
                 val count = ReverieCoreBridge.storedSelectionCount()
                 var preIdx = -1
@@ -1862,9 +1914,57 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
     }) {
         if (ReverieCoreBridge.canRedo()) {
             val beforeCount = ReverieCoreBridge.redoCount()
+            val storyboard = anim.storyboard
+            val history = storyboard.pendingCueHistory
+            val historyIndex = com.reverie.paint.model.StoryboardHistory.redoIndex(
+                entries = history,
+                generation = storyboard.generation,
+                undoCountCurrent = ReverieCoreBridge.undoCount(),
+                label = ReverieCoreBridge.redoText().orEmpty(),
+            )
+            val cueChange = history.getOrNull(historyIndex)?.payload
             Breadcrumbs.record("History", "Redo")
             ReverieCoreBridge.redo()
             didRedo = ReverieCoreBridge.redoCount() != beforeCount
+            if (didRedo && cueChange != null) {
+                when (cueChange) {
+                    is com.reverie.paint.core.PendingStoryboardCueChange.Delete -> {
+                        val times = storyboard.cueTimes.toMutableList()
+                        if (cueChange.allIndex in times.indices) {
+                            times[cueChange.allIndex] = -1
+                            storyboard.cueTimes = times
+                            ReverieCoreBridge.storeRevAsset(
+                                SrtStoryboard.ASSET + ".frames",
+                                SrtStoryboard.encodeFrameTimes(times),
+                            )
+                            storyboard.pendingCueHistory =
+                                com.reverie.paint.model.StoryboardHistory.markUndone(
+                                    history,
+                                    historyIndex,
+                                    undone = false,
+                                )
+                        }
+                    }
+                    is com.reverie.paint.core.PendingStoryboardCueChange.Split -> {
+                        storyboard.allCues = cueChange.cuesAfter
+                        storyboard.cueTimes = cueChange.timesAfter
+                        ReverieCoreBridge.storeRevAsset(
+                            SrtStoryboard.ASSET,
+                            SrtStoryboard.encode(cueChange.cuesAfter),
+                        )
+                        ReverieCoreBridge.storeRevAsset(
+                            SrtStoryboard.ASSET + ".frames",
+                            SrtStoryboard.encodeFrameTimes(cueChange.timesAfter),
+                        )
+                        storyboard.pendingCueHistory =
+                            com.reverie.paint.model.StoryboardHistory.markUndone(
+                                history,
+                                historyIndex,
+                                undone = false,
+                            )
+                    }
+                }
+            }
             if (didRedo && restoreRedoSel) {
                 ReverieCoreBridge.setUndoCaptureEnabled(false)
                 try {
@@ -2353,4 +2453,3 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
         currentToolId = Tool.TRANSFORM.id
     }
 }
-

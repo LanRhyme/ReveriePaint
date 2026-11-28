@@ -356,9 +356,7 @@ import kotlinx.coroutines.withContext
                     else -> com.reverie.paint.model.Tool.fromIdOrNull(id)
                 }
             }.distinct()
-            if (loaded.isNotEmpty()) {
-                pinnedTools = loaded
-            }
+            if (loaded.isNotEmpty()) pinnedTools = loaded
         } catch (_: Exception) {
         }
     }

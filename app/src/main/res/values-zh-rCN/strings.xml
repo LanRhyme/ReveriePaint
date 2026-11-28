@@ -1112,6 +1112,19 @@
     <string name="anim_onion_forward_short">未来</string>
     <string name="anim_onion_backward_tint_title">过去帧着色</string>
     <string name="anim_onion_forward_tint_title">未来帧着色</string>
+    <!-- Animation composition guides -->
+    <string name="anim_guides_section">动画辅助</string>
+    <string name="anim_guides_title">画面参考线</string>
+    <string name="anim_guides_configure">配置</string>
+    <string name="anim_guides_count">%1$d 项</string>
+    <string name="anim_guides_done">完成</string>
+    <string name="anim_guide_nine_grid">九宫格</string>
+    <string name="anim_guide_center">中心线</string>
+    <string name="anim_guide_golden_ratio">黄金分割</string>
+    <string name="anim_guide_diagonals">对角线</string>
+    <string name="anim_guide_safe_frame">安全框</string>
+    <string name="anim_guide_horizon">地平线</string>
+    <string name="anim_guide_horizon_position">地平线位置</string>
     <string name="anim_settings_display">显示</string>
     <string name="anim_settings_thumbnails">帧缩略图</string>
     <string name="anim_settings_audio">音频</string>
@@ -3703,6 +3716,33 @@
     <string name="srt_single_frame_title">SRT 分镜 · 原始时间仅供参考</string>
     <string name="srt_single_frame_hint">拖右边缘调时长 · SRT 轨道绘画不切帧</string>
     <string name="srt_mapping_changed">关键帧数量已改变，字幕定位暂停</string>
+    <!-- Storyboard PDF and countdown -->
+    <string name="srt_delete_cue">删除此分镜</string>
+    <string name="srt_delete_cue_title">删除这条分镜？</string>
+    <string name="srt_delete_cue_message">对应关键帧和字幕将一起删除，其他分镜与画面位置保持不变</string>
+    <string name="srt_delete_cue_confirm">删除分镜</string>
+    <string name="srt_delete_cue_done">分镜已删除</string>
+    <string name="srt_pdf_export">导出分镜 PDF</string>
+    <string name="srt_pdf_exporting">正在导出 PDF…</string>
+    <string name="srt_pdf_layout_title">选择 A4 分镜版式</string>
+    <string name="srt_pdf_layout_description">每格上方显示对应 SRT 分镜描述</string>
+    <string name="srt_pdf_four">4 格 · 横版 A4</string>
+    <string name="srt_pdf_six">6 格 · 竖版 A4</string>
+    <string name="srt_pdf_filename_landscape">分镜表-A4横版.pdf</string>
+    <string name="srt_pdf_filename_portrait">分镜表-A4竖版.pdf</string>
+    <string name="srt_pdf_page_title">分镜表 · 第 %1$d 页</string>
+    <string name="srt_shot_header">分镜 %1$d</string>
+    <string name="srt_pdf_export_success">分镜 PDF 已导出</string>
+    <string name="srt_pdf_export_failed">分镜 PDF 导出失败</string>
+    <string name="srt_pdf_mapping_error">分镜与关键帧不匹配，暂时无法导出 PDF</string>
+    <string name="countdown_title">绘画倒计时</string>
+    <string name="countdown_minutes">%1$d 分钟</string>
+    <string name="countdown_custom_minutes">自定义分钟数</string>
+    <string name="countdown_start">开始</string>
+    <string name="countdown_pause">暂停</string>
+    <string name="countdown_resume">继续</string>
+    <string name="countdown_reset">重置</string>
+    <string name="countdown_finished">倒计时结束</string>
 
     <!-- 智能阴影辅助 Shading Assist -->
     <string name="shading_assist_title">智能阴影</string>

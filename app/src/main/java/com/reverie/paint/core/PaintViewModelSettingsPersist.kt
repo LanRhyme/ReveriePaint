@@ -183,6 +183,8 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         loadPanelSnapPrefs()
         layerHeaderInheritAlpha = prefs.getBoolean("layerHeaderInheritAlpha", false)
         drawingGuideLinesVisible = prefs.getBoolean("drawing_guide_lines_visible", true)
+        compositionGuides = CompositionGuidesCodec.decode(prefs.getString("composition_guides", null))
+        compositionHorizon = prefs.getFloat("composition_horizon", 0.5f).coerceIn(0f, 1f)
         leftHandMode = prefs.getBoolean("leftHandMode", false)
         autoHidePanelsOnStroke = prefs.getBoolean("autoHidePanelsOnStroke", true)
         brushSlideAdjustEnabled = prefs.getBoolean("brush_slide_adjust_enabled", true)
@@ -549,6 +551,29 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         quickActionWindowX = if (qaUseSlot) { if (isLand) quickActionWindowX_land else quickActionWindowX_port } else qaLegacyX
         quickActionWindowY = if (qaUseSlot) { if (isLand) quickActionWindowY_land else quickActionWindowY_port } else qaLegacyY
         quickActionCollapsed = prefs.getBoolean("quick_action_collapsed", false)
+        countdownWindowOpen = prefs.getBoolean("countdown_window_open", false)
+        countdownWindowWasOpen = countdownWindowOpen
+        val countdownLegacyX = prefs.getFloat("countdown_window_x", -1f)
+        val countdownLegacyY = prefs.getFloat("countdown_window_y", -1f)
+        countdownWindowX_land = prefs.getFloat("countdown_window_x_land", countdownLegacyX)
+        countdownWindowY_land = prefs.getFloat("countdown_window_y_land", countdownLegacyY)
+        countdownWindowX_port = prefs.getFloat("countdown_window_x_port", -1f)
+        countdownWindowY_port = prefs.getFloat("countdown_window_y_port", -1f)
+        val countdownPositioned = if (isLand) {
+            isFloatingWindowPositioned(countdownWindowX_land, countdownWindowY_land)
+        } else {
+            isFloatingWindowPositioned(countdownWindowX_port, countdownWindowY_port)
+        }
+        countdownWindowX = if (countdownPositioned) {
+            if (isLand) countdownWindowX_land else countdownWindowX_port
+        } else {
+            countdownLegacyX
+        }
+        countdownWindowY = if (countdownPositioned) {
+            if (isLand) countdownWindowY_land else countdownWindowY_port
+        } else {
+            countdownLegacyY
+        }
         val layoutMode = com.reverie.paint.model.QuickActionLayoutMode.fromId(prefs.getString("quick_action_layout", "column") ?: "column")
         val showLabels = prefs.getBoolean("quick_action_show_labels", false)
         val actionsRaw = prefs.getString("quick_action_actions", null)

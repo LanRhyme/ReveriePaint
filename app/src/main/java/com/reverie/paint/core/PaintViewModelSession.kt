@@ -130,7 +130,29 @@ internal fun PaintViewModel.computeCurrentBrushPredictionTier(): PredictionFidel
 internal fun PaintViewModel.toggleDrawingGuideLines() {
     drawingGuideLinesVisible = !drawingGuideLinesVisible
     try {
-        prefs().edit().putBoolean("drawing_guide_lines_visible", drawingGuideLinesVisible).apply()
+        prefs.edit().putBoolean("drawing_guide_lines_visible", drawingGuideLinesVisible).apply()
+    } catch (_: Exception) {}
+}
+
+internal fun PaintViewModel.toggleCompositionGuide(guide: CompositionGuide) {
+    compositionGuides = if (guide in compositionGuides) {
+        compositionGuides - guide
+    } else {
+        compositionGuides + guide
+    }
+    persistCompositionGuides()
+}
+
+internal fun PaintViewModel.updateCompositionHorizon(value: Float) {
+    compositionHorizon = value.coerceIn(0f, 1f)
+}
+
+internal fun PaintViewModel.persistCompositionGuides() {
+    try {
+        prefs.edit()
+            .putString("composition_guides", CompositionGuidesCodec.encode(compositionGuides))
+            .putFloat("composition_horizon", compositionHorizon)
+            .apply()
     } catch (_: Exception) {}
 }
 

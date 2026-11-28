@@ -252,6 +252,8 @@ internal fun PaintViewModel.handleOrientationChange(
         quickLayerWindowY_land = quickLayerWindowY
         referenceWindowX_land = referenceWindowX
         referenceWindowY_land = referenceWindowY
+        countdownWindowX_land = countdownWindowX
+        countdownWindowY_land = countdownWindowY
     } else {
         quickActionWindowX_port = quickActionWindowX
         quickActionWindowY_port = quickActionWindowY
@@ -266,6 +268,8 @@ internal fun PaintViewModel.handleOrientationChange(
         quickLayerWindowY_port = quickLayerWindowY
         referenceWindowX_port = referenceWindowX
         referenceWindowY_port = referenceWindowY
+        countdownWindowX_port = countdownWindowX
+        countdownWindowY_port = countdownWindowY
     }
 
     // 2. 切换方向标记
@@ -298,6 +302,10 @@ internal fun PaintViewModel.handleOrientationChange(
             referenceWindowX = referenceWindowX_land
             referenceWindowY = referenceWindowY_land
         }
+        if (isFloatingWindowPositioned(countdownWindowX_land, countdownWindowY_land)) {
+            countdownWindowX = countdownWindowX_land
+            countdownWindowY = countdownWindowY_land
+        }
     } else {
         if (isFloatingWindowPositioned(quickActionWindowX_port, quickActionWindowY_port)) {
             quickActionWindowX = quickActionWindowX_port
@@ -324,6 +332,10 @@ internal fun PaintViewModel.handleOrientationChange(
             referenceWindowX = referenceWindowX_port
             referenceWindowY = referenceWindowY_port
         }
+        if (isFloatingWindowPositioned(countdownWindowX_port, countdownWindowY_port)) {
+            countdownWindowX = countdownWindowX_port
+            countdownWindowY = countdownWindowY_port
+        }
     }
 
     // 4. 按绘画页布局夹取; 宿主尚未测量时回退到本次传入的屏幕尺寸
@@ -345,6 +357,8 @@ internal fun PaintViewModel.handleOrientationChange(
         quickLayerWindowY_land = quickLayerWindowY
         referenceWindowX_land = referenceWindowX
         referenceWindowY_land = referenceWindowY
+        countdownWindowX_land = countdownWindowX
+        countdownWindowY_land = countdownWindowY
     } else {
         quickActionWindowX_port = quickActionWindowX
         quickActionWindowY_port = quickActionWindowY
@@ -358,12 +372,15 @@ internal fun PaintViewModel.handleOrientationChange(
         quickLayerWindowY_port = quickLayerWindowY
         referenceWindowX_port = referenceWindowX
         referenceWindowY_port = referenceWindowY
+        countdownWindowX_port = countdownWindowX
+        countdownWindowY_port = countdownWindowY
     }
     persistQuickActionsState()
     persistQuickBrushState()
     persistQuickColorState()
     persistQuickOklchState()
     persistQuickLayerState()
+    persistCountdownWindowState()
 }
 
 /**
@@ -602,6 +619,20 @@ internal fun PaintViewModel.clampQuickWindowsToSafeArea(
             { nx, ny -> quickLayerWindowX = nx; quickLayerWindowY = ny },
             ::persistQuickLayerState,
         )
+    }
+
+    if (isFloatingWindowPositioned(countdownWindowX, countdownWindowY)) {
+        val width = if (countdownWindowWidth > 0f) countdownWindowWidth else 150f * density
+        val height = if (countdownWindowHeight > 0f) countdownWindowHeight else 42f * density
+        val maxX = (parentW - width).coerceAtLeast(0f)
+        val maxY = (parentH - height).coerceAtLeast(0f)
+        val nextX = countdownWindowX.coerceIn(0f, maxX)
+        val nextY = countdownWindowY.coerceIn(0f, maxY)
+        if (nextX != countdownWindowX || nextY != countdownWindowY) {
+            countdownWindowX = nextX
+            countdownWindowY = nextY
+            if (persist) persistCountdownWindowState()
+        }
     }
 }
 

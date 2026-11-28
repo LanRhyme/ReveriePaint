@@ -12,9 +12,9 @@ import org.junit.Test
 class UiPanelOcclusionTrackerTest {
 
     @Test
-    fun `all 24 slots can be registered updated and cleared`() {
+    fun `all slots can be registered updated and cleared`() {
         val tracker = UiPanelOcclusionTracker()
-        assertEquals(24, UiPanelSlot.COUNT)
+        assertEquals(UiPanelSlot.entries.size, UiPanelSlot.COUNT)
 
         for (slot in UiPanelSlot.entries) {
             val token = tracker.nextToken()
@@ -24,8 +24,8 @@ class UiPanelOcclusionTrackerTest {
             assertEquals(1f, tracker.left(slot))
             assertEquals(4f, tracker.bottom(slot))
         }
-        assertEquals(24, tracker.activeCount())
-        assertEquals(24, tracker.snapshot().count)
+        assertEquals(UiPanelSlot.COUNT, tracker.activeCount())
+        assertEquals(UiPanelSlot.COUNT, tracker.snapshot().count)
 
         for (slot in UiPanelSlot.entries) {
             assertTrue(tracker.clear(slot, tracker.ownerToken(slot)))
@@ -464,8 +464,8 @@ class UiPanelOcclusionTrackerTest {
             val base = slot.ordinal * 100f
             assertTrue(tracker.update(slot, token, base, base + 1f, base + 50f, base + 51f))
         }
-        assertEquals(24, tracker.activeCount())
-        assertEquals(24, tracker.snapshot().count)
+        assertEquals(UiPanelSlot.COUNT, tracker.activeCount())
+        assertEquals(UiPanelSlot.COUNT, tracker.snapshot().count)
 
         for (slot in UiPanelSlot.entries) {
             assertTrue(tracker.clear(slot, tracker.ownerToken(slot)))
@@ -482,8 +482,8 @@ class UiPanelOcclusionTrackerTest {
             assertEquals(base + 60f, tracker.right(slot), 0f)
             assertEquals(base + 62f, tracker.bottom(slot), 0f)
         }
-        assertEquals(24, tracker.activeCount())
-        assertEquals(24, tracker.snapshot().count)
+        assertEquals(UiPanelSlot.COUNT, tracker.activeCount())
+        assertEquals(UiPanelSlot.COUNT, tracker.snapshot().count)
 
         val out = FloatArray(4)
         for (slot in UiPanelSlot.entries) {
@@ -630,7 +630,7 @@ class UiPanelOcclusionTrackerTest {
         val slot = UiPanelSlot.LAYER_FILTER_ADJUST_CARD
         assertFalse(slot.evadable)
         assertFalse(UiPanelSlot.EVADABLE_ARRAY.contains(slot))
-        assertEquals(10, UiPanelSlot.EVADABLE.size)
+        assertEquals(11, UiPanelSlot.EVADABLE.size)
         val tracker = UiPanelOcclusionTracker()
         val t = tracker.nextToken()
         tracker.update(slot, t, 10f, 10f, 310f, 410f, padH = 18f, padT = 12f, padB = 26f)

@@ -509,6 +509,11 @@ class PaintViewModel : ViewModel() {
     internal var referenceWindowX_port: Float = -1f
     internal var referenceWindowY_port: Float = -1f
 
+    internal var countdownWindowX_land: Float = -1f
+    internal var countdownWindowY_land: Float = -1f
+    internal var countdownWindowX_port: Float = -1f
+    internal var countdownWindowY_port: Float = -1f
+
     // Quick Actions Tool Window State (快捷操作浮窗)
     var quickActionWindowOpen by mutableStateOf(false)
     var quickActionWindowWasOpen = false
@@ -518,6 +523,18 @@ class PaintViewModel : ViewModel() {
     var quickActionWindowWidth by mutableFloatStateOf(0f)
     var quickActionWindowHeight by mutableFloatStateOf(0f)
     var quickActionCollapsed by mutableStateOf(false)
+
+    // Countdown floating tool window and session state.
+    var countdownWindowOpen by mutableStateOf(false)
+    var countdownWindowWasOpen = false
+    var countdownWindowX by mutableFloatStateOf(-1f)
+    var countdownWindowY by mutableFloatStateOf(-1f)
+    var countdownWindowWidth by mutableFloatStateOf(0f)
+    var countdownWindowHeight by mutableFloatStateOf(0f)
+    var countdownRemainingMs by mutableLongStateOf(0L)
+    var countdownDeadlineElapsedMs by mutableLongStateOf(0L)
+    var countdownRunning by mutableStateOf(false)
+    internal var countdownJob: Job? = null
 
     // Quick Brush Tool Window State (快捷笔刷浮窗)
     var quickBrushWindowOpen by mutableStateOf(false)
@@ -677,7 +694,7 @@ class PaintViewModel : ViewModel() {
     var homeCustomBgVersion by mutableLongStateOf(0L)
 
     // ---- 前缓冲 UI 裁剪槽位状态 (Phase 1) ----
-    /** 21 个面板槽位的实测边界与 owner token (UI 线程独占)。 */
+    /** 所有面板槽位的实测边界与 owner token (UI 线程独占)。 */
     val panelOcclusion = com.reverie.paint.model.UiPanelOcclusionTracker()
 
     /** 每个槽位独立的 Compose 状态, 避免全局 mask 牵连所有面板重组。 */
@@ -933,6 +950,12 @@ class PaintViewModel : ViewModel() {
     // 绘图辅助与参考线状态 (Symmetry, Perspective, Grid)
     var drawingGuide by mutableStateOf(DrawingGuideConfig())
     var drawingGuideLinesVisible by mutableStateOf(true)
+        internal set
+
+    // 动画画面参考线 (仅动画工程显示)
+    var compositionGuides by mutableStateOf<Set<CompositionGuide>>(emptySet())
+        internal set
+    var compositionHorizon by mutableFloatStateOf(0.5f)
         internal set
 
     // 画布内富文本排版状态 (In-place Typography)

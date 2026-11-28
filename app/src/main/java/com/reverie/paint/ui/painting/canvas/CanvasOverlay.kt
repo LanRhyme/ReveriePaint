@@ -334,6 +334,13 @@ internal fun CanvasOverlay(
                 zoom = zoom.value,
                 fitScale = fitScale,
             )
+            drawCompositionGuides(
+                vm = vm,
+                bmpWidth = imgW,
+                bmpHeight = imgH,
+                zoom = zoom.value,
+                fitScale = fitScale,
+            )
 
             // 分格覆盖层 (轮廓/选中高亮/角手柄/拖动预览/画画模式分格轮廓提示)
             if (panelInteraction != null &&

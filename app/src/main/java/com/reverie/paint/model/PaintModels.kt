@@ -71,6 +71,7 @@ enum class Tool(
     QUICK_COLOR("quick_color", "快捷颜色", ToolGroup.VIEW),
     QUICK_OKLCH("quick_oklch", "OKLCH 调色", ToolGroup.VIEW),
     QUICK_LAYER("quick_layer", "快捷图层", ToolGroup.VIEW),
+    COUNTDOWN("countdown", "倒计时", ToolGroup.VIEW),
     DRAWING_GUIDE("drawing_guide", "绘图辅助", ToolGroup.OTHER),
     SYMMETRY("symmetry", "对称", ToolGroup.OTHER),
     PERSPECTIVE("perspective", "透视", ToolGroup.OTHER),

@@ -124,6 +124,41 @@ class SrtStoryboardTest {
         ))
     }
 
+    @Test fun `storyboard history tracks repeated edits in undo order`() {
+        var entries = emptyList<StoryboardHistoryEntry<String>>()
+        entries = StoryboardHistory.append(
+            entries,
+            StoryboardHistoryEntry(generation = 2, undoCountAfter = 8, label = "delete", payload = "first"),
+        )
+        entries = StoryboardHistory.append(
+            entries,
+            StoryboardHistoryEntry(generation = 2, undoCountAfter = 9, label = "delete", payload = "second"),
+        )
+
+        val second = StoryboardHistory.undoIndex(entries, generation = 2, undoCountBefore = 9, label = "delete")
+        assertEquals("second", entries[second].payload)
+        entries = StoryboardHistory.markUndone(entries, second, undone = true)
+
+        val first = StoryboardHistory.undoIndex(entries, generation = 2, undoCountBefore = 8, label = "delete")
+        assertEquals("first", entries[first].payload)
+    }
+
+    @Test fun `storyboard redo rejects a stale sidecar after another edit clears redo`() {
+        var entries = listOf(
+            StoryboardHistoryEntry(generation = 1, undoCountAfter = 12, label = "split", payload = Unit),
+        )
+        entries = StoryboardHistory.markUndone(entries, 0, undone = true)
+
+        assertEquals(-1, StoryboardHistory.redoIndex(entries, 1, 11, "paint stroke"))
+        assertEquals(0, StoryboardHistory.redoIndex(entries, 1, 11, "split"))
+
+        entries = StoryboardHistory.append(
+            entries,
+            StoryboardHistoryEntry(generation = 1, undoCountAfter = 12, label = "delete", payload = Unit),
+        )
+        assertEquals(-1, StoryboardHistory.redoIndex(entries, 1, 11, "split"))
+    }
+
     @Test fun `splitting a cue preserves every character on both sides of the caret`() {
         val original = "cf week is the best time the best"
         val cues = listOf(SrtCue(0, 1000, original))

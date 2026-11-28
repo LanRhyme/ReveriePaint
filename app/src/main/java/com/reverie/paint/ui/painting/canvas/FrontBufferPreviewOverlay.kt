@@ -36,6 +36,7 @@ import com.reverie.paint.model.FrontBufferCompose
 import com.reverie.paint.model.FrontBufferHolePolicy
 import com.reverie.paint.model.FrontBufferSurfaceGate
 import com.reverie.paint.model.RealInkPresent
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.model.UiClipSnapshot
 import com.reverie.paint.perf.FbGeomLog
 import java.util.concurrent.atomic.AtomicBoolean
@@ -43,8 +44,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** 单包最大 dab 戳印数 (预分配, 热路径零分配)。 */
 private const val MAX_STAMPS = 64
 
-/** 真墨/预览包最多携带的 UI 避让矩形 (UiPanelSlot 21 项 + 3 项冗余)。 */
-private const val MAX_UI_CLIPS = 24
+/** 真墨/预览包最多携带的 UI 裁剪矩形 (每个槽位各一项, 另留 3 项冗余)。 */
+private val MAX_UI_CLIPS = UiPanelSlot.COUNT + 3
 
 /**
  * 前缓冲载荷 (传递给 CanvasFrontBufferedRenderer 渲染线程)。两种:

@@ -19,6 +19,7 @@ import com.reverie.paint.core.panels
 import com.reverie.paint.core.selectedPanelId
 import com.reverie.paint.model.CanvasDecorGeometry
 import com.reverie.paint.model.CanvasPose
+import com.reverie.paint.model.CompositionGuide
 import com.reverie.paint.model.DrawingGuideConfig
 
 /**
@@ -101,6 +102,9 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
 
     // 上次录制所依据的状态 (引用比较; 都是不可变快照或 Compose state 里整体替换的对象)。
     private var keyGuide: DrawingGuideConfig? = null
+    private var keyCompositionGuides: Set<CompositionGuide> = emptySet()
+    private var keyCompositionHorizon = Float.NaN
+    private var keyAnimationEnabled = false
     private var keyOutline: androidx.compose.ui.graphics.Path? = null
     private var keyHasSelection = false
     private var keyTransform = false
@@ -124,6 +128,9 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
     fun isStale(v: PaintViewModel, pose: CanvasPose, isTransform: Boolean): Boolean {
         if (!hasKey) return true
         return keyGuide !== v.drawingGuide ||
+            keyCompositionGuides != v.compositionGuides ||
+            keyCompositionHorizon != v.compositionHorizon ||
+            keyAnimationEnabled != v.anim.enabled ||
             keyOutline !== v.selectionOutlinePath ||
             keyHasSelection != v.hasSelection ||
             keyTransform != isTransform ||
@@ -142,6 +149,8 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
     fun invalidate() {
         hasKey = false
         keyGuide = null
+        keyCompositionGuides = emptySet()
+        keyCompositionHorizon = Float.NaN
         keyOutline = null
         keyPanels = null
         keySelectedPanelId = null
@@ -160,6 +169,7 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
         val imgH = CanvasDecorGeometry.overlayBitmapSize(v.renderH, v.docHeight)
         if (imgW <= 0 || imgH <= 0) return false
         if (CanvasDecorGeometry.guidesVisible(v.drawingGuide)) return true
+        if (v.anim.enabled && v.compositionGuides.isNotEmpty()) return true
         if (v.panels.isNotEmpty() && v.currentPaintingPanelIds().isNotEmpty()) return true
         return v.selectionOutlinePath != null && CanvasDecorGeometry.selectionOutlineVisible(
             hasSelection = v.hasSelection,
@@ -184,6 +194,9 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
         val h = view.height
         hasKey = true
         keyGuide = v.drawingGuide
+        keyCompositionGuides = v.compositionGuides
+        keyCompositionHorizon = v.compositionHorizon
+        keyAnimationEnabled = v.anim.enabled
         keyOutline = v.selectionOutlinePath
         keyHasSelection = v.hasSelection
         keyTransform = isTransform
@@ -205,6 +218,7 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
 
         val gridOn = CanvasDecorGeometry.pixelGridDrawn(v.pixelGridEnabled, pose.scale)
         val guidesOn = CanvasDecorGeometry.guidesVisible(v.drawingGuide)
+        val compositionOn = v.anim.enabled && v.compositionGuides.isNotEmpty()
         val outline = v.selectionOutlinePath
         val antsOn = outline != null && CanvasDecorGeometry.selectionOutlineVisible(
             hasSelection = v.hasSelection,
@@ -215,7 +229,7 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
         val imgW = CanvasDecorGeometry.overlayBitmapSize(v.renderW, v.docWidth).toFloat()
         val imgH = CanvasDecorGeometry.overlayBitmapSize(v.renderH, v.docHeight).toFloat()
         val panelsOn = v.panels.isNotEmpty() && v.currentPaintingPanelIds().isNotEmpty() && imgW > 0f && imgH > 0f
-        val overlayOn = (guidesOn || antsOn || panelsOn) && imgW > 0f && imgH > 0f
+        val overlayOn = (guidesOn || compositionOn || antsOn || panelsOn) && imgW > 0f && imgH > 0f
 
         val under = if (gridOn) {
             Picture().also { pic ->
@@ -249,6 +263,13 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
                                         }
                                     }
                                     drawDrawingGuides(
+                                        vm = v,
+                                        bmpWidth = imgW,
+                                        bmpHeight = imgH,
+                                        zoom = zoom,
+                                        fitScale = fit,
+                                    )
+                                    drawCompositionGuides(
                                         vm = v,
                                         bmpWidth = imgW,
                                         bmpHeight = imgH,
