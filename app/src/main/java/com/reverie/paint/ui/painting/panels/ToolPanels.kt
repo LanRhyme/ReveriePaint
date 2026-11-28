@@ -126,6 +126,7 @@ fun GradientPanel(
             initialFgColor = fgColor,
             initialBgColor = bgColor,
             onDismiss = { showPresetDialog = false },
+            vm = vm,
         )
     }
 

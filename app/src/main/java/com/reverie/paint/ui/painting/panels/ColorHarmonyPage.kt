@@ -57,7 +57,11 @@ fun ColorHarmonyPage(
     onSat: (Float) -> Unit,
     onVal: (Float) -> Unit,
     onInteractionStart: () -> Unit,
-    onInteractionEnd: () -> Unit
+    onInteractionEnd: () -> Unit,
+    currentColorHex: String = vm.brushColor,
+    onDirectHexSelected: (String) -> Unit = { hex -> vm.updateBrushColor(hex) },
+    isolatedState: Boolean = false,
+    allowShadingSphere: Boolean = true,
 ) {
     val context = LocalContext.current
     val harmonyMode = remember(vm.colorHarmonyModeName) {
@@ -68,17 +72,17 @@ fun ColorHarmonyPage(
         }
     }
 
-    val initialBaseHue = if (vm.colorHarmonyBaseHue >= 0f) vm.colorHarmonyBaseHue else hue
+    val initialBaseHue = if (!isolatedState && vm.colorHarmonyBaseHue >= 0f) vm.colorHarmonyBaseHue else hue
     var harmonyBaseHue by remember { mutableFloatStateOf(initialBaseHue) }
 
-    LaunchedEffect(Unit) {
-        if (vm.colorHarmonyBaseHue < 0f) {
+    LaunchedEffect(isolatedState) {
+        if (!isolatedState && vm.colorHarmonyBaseHue < 0f) {
             vm.updateColorHarmonyBaseHue(hue)
         }
     }
 
-    LaunchedEffect(vm.colorHarmonyBaseHue) {
-        if (vm.colorHarmonyBaseHue >= 0f) {
+    LaunchedEffect(vm.colorHarmonyBaseHue, isolatedState) {
+        if (!isolatedState && vm.colorHarmonyBaseHue >= 0f) {
             harmonyBaseHue = vm.colorHarmonyBaseHue
         }
     }
@@ -99,61 +103,65 @@ fun ColorHarmonyPage(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // 0. Sub-tab switcher: [ 谐色轮 ] | [ 3D光影 ]
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(Morandi.panelHi)
-                .padding(2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val subTab = vm.colorHarmonySubTab
-            Box(
+        if (allowShadingSphere) {
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (subTab == 0) Morandi.accent else Color.Transparent)
-                    .clickable { vm.updateColorHarmonySubTab(0) },
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.panelHi)
+                    .padding(2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = androidx.compose.ui.res.stringResource(R.string.color_harmony_subtab_wheel),
-                    color = if (subTab == 0) Morandi.onAccent else Morandi.subText,
-                    fontSize = 11.sp,
-                    fontWeight = if (subTab == 0) FontWeight.Bold else FontWeight.Normal
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (subTab == 1) Morandi.accent else Color.Transparent)
-                    .clickable {
-                        if (subTab != 1) {
-                            vm.updateColorSphereBaseHex(vm.brushColor)
-                        }
-                        vm.updateColorHarmonySubTab(1)
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = androidx.compose.ui.res.stringResource(R.string.color_harmony_subtab_sphere),
-                    color = if (subTab == 1) Morandi.onAccent else Morandi.subText,
-                    fontSize = 11.sp,
-                    fontWeight = if (subTab == 1) FontWeight.Bold else FontWeight.Normal
-                )
+                val subTab = vm.colorHarmonySubTab
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(24.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (subTab == 0) Morandi.accent else Color.Transparent)
+                        .clickable { vm.updateColorHarmonySubTab(0) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = androidx.compose.ui.res.stringResource(R.string.color_harmony_subtab_wheel),
+                        color = if (subTab == 0) Morandi.onAccent else Morandi.subText,
+                        fontSize = 11.sp,
+                        fontWeight = if (subTab == 0) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(24.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (subTab == 1) Morandi.accent else Color.Transparent)
+                        .clickable {
+                            if (!isolatedState && subTab != 1) {
+                                vm.updateColorSphereBaseHex(currentColorHex)
+                            }
+                            vm.updateColorHarmonySubTab(1)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = androidx.compose.ui.res.stringResource(R.string.color_harmony_subtab_sphere),
+                        color = if (subTab == 1) Morandi.onAccent else Morandi.subText,
+                        fontSize = 11.sp,
+                        fontWeight = if (subTab == 1) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
             }
         }
 
-        if (vm.colorHarmonySubTab == 1) {
+        if (allowShadingSphere && vm.colorHarmonySubTab == 1) {
             ColorShadingSpherePage(
                 vm = vm,
-                onColorSelected = { hex -> vm.updateBrushColor(hex) },
+                onColorSelected = onDirectHexSelected,
                 onInteractionStart = onInteractionStart,
-                onInteractionEnd = onInteractionEnd
+                onInteractionEnd = onInteractionEnd,
+                currentColorHex = currentColorHex,
+                isolatedBaseHex = isolatedState,
             )
         } else {
             // 1. Harmony Mode Selector Tabs
@@ -190,19 +198,21 @@ fun ColorHarmonyPage(
             ) {
                 HarmonyWheelCanvas(
                     hues = harmonyHues,
-                    activeColorHex = vm.brushColor,
+                    activeColorHex = currentColorHex,
                     harmonyHexColors = harmonyHexColors,
                     sat = sat,
                     valB = valB,
                     onPrimaryHue = { newHue ->
                         harmonyBaseHue = newHue
-                        vm.updateColorHarmonyBaseHue(newHue)
+                        if (!isolatedState) {
+                            vm.updateColorHarmonyBaseHue(newHue)
+                        }
                         onHue(newHue)
                     },
                     onSelectSecondary = { secondaryIndex ->
                         val targetHex = harmonyHexColors.getOrNull(secondaryIndex)
                         if (targetHex != null) {
-                            vm.updateBrushColor(targetHex)
+                            onDirectHexSelected(targetHex)
                         }
                     },
                     onInteractionStart = onInteractionStart,
@@ -221,7 +231,7 @@ fun ColorHarmonyPage(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val curHex = vm.brushColor
+                    val curHex = currentColorHex
                     for (hex in harmonyHexColors) {
                         val isPrimary = hex.equals(curHex, ignoreCase = true)
                         Box(
@@ -234,7 +244,7 @@ fun ColorHarmonyPage(
                                     else Modifier.border(0.5.dp, Morandi.border, RoundedCornerShape(6.dp))
                                 )
                                 .clickable {
-                                    vm.updateBrushColor(hex)
+                                    onDirectHexSelected(hex)
                                 }
                         )
                     }
@@ -311,8 +321,8 @@ fun ColorHarmonyPage(
         // 5. Bottom Quick Swatches
         BottomQuickSwatchesSection(
             vm = vm,
-            currentColorHex = vm.brushColor,
-            onColorSelect = { hex -> vm.updateBrushColor(hex) }
+            currentColorHex = currentColorHex,
+            onColorSelect = onDirectHexSelected
         )
     }
 }

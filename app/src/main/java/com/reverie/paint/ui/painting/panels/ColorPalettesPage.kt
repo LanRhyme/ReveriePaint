@@ -65,7 +65,8 @@ import com.reverie.paint.core.allPalettes
 @Composable
 fun PalettesPage(
     vm: PaintViewModel,
-    onColorSelected: (String) -> Unit
+    onColorSelected: (String) -> Unit,
+    currentColorHex: String = vm.brushColor,
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -377,14 +378,14 @@ fun PalettesPage(
                     // Dynamic row count Grid with Compact Square Swatches & quick slot add
                     SquarePaletteSwatchesGrid(
                         colors = palette.colors,
-                        selectedColor = vm.brushColor,
+                        selectedColor = currentColorHex,
                         onColorSelect = onColorSelected,
                         onColorLongPress = { colorIdx ->
                             vm.removeColorFromPalette(palette.id, colorIdx)
                             Toast.makeText(context, context.getString(R.string.color_pal_removed_color), Toast.LENGTH_SHORT).show()
                         },
                         onEmptySlotClick = {
-                            vm.addColorToPalette(palette.id, vm.brushColor)
+                            vm.addColorToPalette(palette.id, currentColorHex)
                             Toast.makeText(context, context.getString(R.string.color_pal_saved_cur_color), Toast.LENGTH_SHORT).show()
                         }
                     )
@@ -415,7 +416,7 @@ fun PalettesPage(
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(Morandi.panelHi)
                                 .clickable {
-                                vm.addColorToPalette(pal.id, vm.brushColor)
+                                vm.addColorToPalette(pal.id, currentColorHex)
                                 showAddColorPalettePicker = false
                                 Toast.makeText(context, context.getString(R.string.color_pal_save_to, pal.name), Toast.LENGTH_SHORT).show()
                             }
@@ -464,7 +465,7 @@ fun PalettesPage(
                     stringResource(R.string.color_pal_create_btn),
                     onClick = {
                         if (newPaletteName.isNotBlank()) {
-                            vm.createNewPalette(newPaletteName.trim(), listOf(vm.brushColor))
+                            vm.createNewPalette(newPaletteName.trim(), listOf(currentColorHex))
                             showCreatePaletteDialog = false
                         }
                     },

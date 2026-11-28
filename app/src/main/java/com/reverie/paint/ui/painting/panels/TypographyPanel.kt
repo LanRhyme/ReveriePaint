@@ -129,6 +129,7 @@ fun TypographyPanel(
             },
             onDismiss = { colorPickerOpen = false },
             showFastSwatches = true,
+            vm = vm,
         )
     }
 

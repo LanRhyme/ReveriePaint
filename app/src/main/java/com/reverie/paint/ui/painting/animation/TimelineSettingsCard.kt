@@ -333,6 +333,7 @@ internal fun TimelineSettings(
                     pickingOnionColor = null
                 },
                 onDismiss = { pickingOnionColor = null },
+                vm = vm,
             )
         }
 

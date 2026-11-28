@@ -270,7 +270,8 @@ internal fun CustomGradientEditor(
     stops: MutableList<CustomGradStop>,
     reverse: Boolean,
     onReverseToggle: () -> Unit,
-    onGradientChanged: () -> Unit
+    onGradientChanged: () -> Unit,
+    vm: com.reverie.paint.core.PaintViewModel? = null,
 ) {
     var selectedStopId by remember { mutableLongStateOf(stops.firstOrNull()?.id ?: 0L) }
     var showColorPicker by remember { mutableStateOf(false) }
@@ -537,7 +538,8 @@ internal fun CustomGradientEditor(
                         activeStop.color = newCol
                         currentOnGradientChanged()
                     },
-                    onDismiss = { showColorPicker = false }
+                    onDismiss = { showColorPicker = false },
+                    vm = vm,
                 )
             }
         }

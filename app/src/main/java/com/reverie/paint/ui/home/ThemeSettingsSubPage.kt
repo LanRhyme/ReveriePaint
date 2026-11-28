@@ -891,6 +891,7 @@ internal fun ThemeSettingsSubPage(
                 showCustomColorDialog = false
             },
             onDismiss = { showCustomColorDialog = false },
+            vm = vm,
         )
     }
 
@@ -904,6 +905,7 @@ internal fun ThemeSettingsSubPage(
                 showCustomCanvasBgDialog = false
             },
             onDismiss = { showCustomCanvasBgDialog = false },
+            vm = vm,
         )
     }
 

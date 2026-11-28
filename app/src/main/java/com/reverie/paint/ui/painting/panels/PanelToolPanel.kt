@@ -163,6 +163,7 @@ private fun PanelPropertiesSection(vm: PaintViewModel, mirror: PanelMirror?) {
         PanelColorRow(
             label = stringResource(R.string.panel_border_color),
             colorArgb = style.borderColor ?: d.borderColor,
+            vm = vm,
             onPick = { argb -> commitStyle(style.copy(borderColor = argb)) },
         )
         ToolFloatSlider(
@@ -237,6 +238,7 @@ private fun PanelPropertiesSection(vm: PaintViewModel, mirror: PanelMirror?) {
             ) {
                 PanelColorSwatch(
                     colorArgb = style.fillColor ?: d.fillColor,
+                    vm = vm,
                     onPick = { argb -> commitStyle(style.copy(fillColor = argb)) },
                 )
                 ReSwitch(
@@ -280,6 +282,7 @@ private fun PanelModeButton(
 private fun PanelColorRow(
     label: String,
     colorArgb: Int,
+    vm: PaintViewModel? = null,
     onPick: (Int) -> Unit,
 ) {
     Row(
@@ -292,7 +295,7 @@ private fun PanelColorRow(
             color = Morandi.subText,
             fontSize = 12.sp,
         )
-        PanelColorSwatch(colorArgb = colorArgb, onPick = onPick)
+        PanelColorSwatch(colorArgb = colorArgb, vm = vm, onPick = onPick)
     }
 }
 
@@ -300,6 +303,7 @@ private fun PanelColorRow(
 @Composable
 private fun PanelColorSwatch(
     colorArgb: Int,
+    vm: PaintViewModel? = null,
     onPick: (Int) -> Unit,
 ) {
     var picking by remember { mutableStateOf(false) }
@@ -326,6 +330,7 @@ private fun PanelColorSwatch(
                 picking = false
             },
             onDismiss = { picking = false },
+            vm = vm,
         )
     }
 }

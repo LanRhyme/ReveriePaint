@@ -68,7 +68,10 @@ fun WheelColorPage(
     onSat: (Float) -> Unit,
     onVal: (Float) -> Unit,
     onInteractionStart: () -> Unit,
-    onInteractionEnd: () -> Unit
+    onInteractionEnd: () -> Unit,
+    currentColorHex: String = vm.brushColor,
+    compareBaselineHex: String = vm.colorCompareBaseline,
+    onDirectHexSelected: (String) -> Unit = { hex -> vm.updateBrushColor(hex) },
 ) {
     var showShapePopup by remember { mutableStateOf(false) }
     var showModelPopup by remember { mutableStateOf(false) }
@@ -101,7 +104,7 @@ fun WheelColorPage(
                 sat = sat,
                 valB = valB,
                 compareEnabled = vm.colorWheelCompareEnabled,
-                previousColorHex = vm.colorCompareBaseline,
+                previousColorHex = compareBaselineHex,
                 topOverflowAllowanceDp = 42.dp,
                 onHue = onHue,
                 onSatVal = onSatVal,
@@ -326,8 +329,8 @@ fun WheelColorPage(
         // 3. Bottom Quick Swatches (Recent Colors / Default Palette Switcher)
         BottomQuickSwatchesSection(
             vm = vm,
-            currentColorHex = vm.brushColor,
-            onColorSelect = { hex -> vm.updateBrushColor(hex) }
+            currentColorHex = currentColorHex,
+            onColorSelect = onDirectHexSelected
         )
     }
 }

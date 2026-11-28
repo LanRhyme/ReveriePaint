@@ -746,7 +746,7 @@ fun BottomQuickSwatchesSection(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
                         .clickable {
-                            vm.addColorToPalette(defaultPal.id, vm.brushColor)
+                            vm.addColorToPalette(defaultPal.id, currentColorHex)
                         }
                         .padding(horizontal = 4.dp, vertical = 2.dp)
                 )
@@ -765,7 +765,7 @@ fun BottomQuickSwatchesSection(
                 selectedColor = currentColorHex,
                 onColorSelect = onColorSelect,
                 onEmptySlotClick = if (defaultPal != null) {
-                    { vm.addColorToPalette(defaultPal.id, vm.brushColor) }
+                    { vm.addColorToPalette(defaultPal.id, currentColorHex) }
                 } else null
             )
         }
@@ -939,7 +939,23 @@ fun CompactColorPickerPopup(
     onResetToAuto: (() -> Unit)? = null,
     resetToAutoText: String = stringResource(R.string.color_sphere_reset_auto),
     showFastSwatches: Boolean = false,
+    vm: com.reverie.paint.core.PaintViewModel? = null,
+    allowShadingSphere: Boolean = true,
 ) {
+    if (vm != null) {
+        FullColorPickerDialog(
+            vm = vm,
+            title = title,
+            initialColor = initialColor,
+            onColorSelected = onColorSelected,
+            onDismiss = onDismiss,
+            onResetToAuto = onResetToAuto,
+            resetToAutoText = resetToAutoText,
+            allowShadingSphere = allowShadingSphere,
+        )
+        return
+    }
+
     val hsv = remember(initialColor) {
         val arr = FloatArray(3)
         AColor.colorToHSV(
@@ -972,6 +988,7 @@ fun CompactColorPickerPopup(
     }
 
     var isVisible by remember { mutableStateOf(false) }
+    var showHexInputDialog by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -1101,12 +1118,21 @@ fun CompactColorPickerPopup(
                                     .background(currentColor)
                                     .border(1.dp, Morandi.border, RoundedCornerShape(6.dp))
                             )
-                            Text(
-                                text = hexString,
-                                color = Morandi.subText,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Morandi.panelHi)
+                                    .clickable { showHexInputDialog = true }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = hexString,
+                                    color = Morandi.text,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                             Box(
                                 modifier = Modifier
                                     .size(26.dp)
@@ -1281,6 +1307,24 @@ fun CompactColorPickerPopup(
     }
 }
 }
+
+    if (showHexInputDialog) {
+        HexInputDialog(
+            initialHex = hexString,
+            onColorConfirmed = { parsedHex ->
+                try {
+                    val parsed = AColor.parseColor(parsedHex)
+                    val arr = FloatArray(3)
+                    AColor.colorToHSV(parsed, arr)
+                    hue = arr[0]
+                    sat = arr[1]
+                    valB = arr[2]
+                } catch (_: Exception) {
+                }
+            },
+            onDismiss = { showHexInputDialog = false }
+        )
+    }
 }
 
 /** Hex 字符串重载版本 */
@@ -1294,6 +1338,8 @@ fun CompactColorPickerPopup(
     onResetToAuto: (() -> Unit)? = null,
     resetToAutoText: String = stringResource(R.string.color_sphere_reset_auto),
     showFastSwatches: Boolean = false,
+    vm: com.reverie.paint.core.PaintViewModel? = null,
+    allowShadingSphere: Boolean = true,
 ) {
     val initialCol = remember(initialHex) {
         try {
@@ -1320,6 +1366,8 @@ fun CompactColorPickerPopup(
         onResetToAuto = onResetToAuto,
         resetToAutoText = resetToAutoText,
         showFastSwatches = showFastSwatches,
+        vm = vm,
+        allowShadingSphere = allowShadingSphere,
     )
 }
 

@@ -455,7 +455,7 @@ private fun ColorPanelHeader(
  * Bottom 5 Navigation Tabs (0: Wheel, 1: Square, 2: Harmony, 3: Palettes, 4: Sliders)
  */
 @Composable
-private fun ColorPanelBottomTabs(
+internal fun ColorPanelBottomTabs(
     selectedTab: Int,
     onTabSelect: (Int) -> Unit
 ) {

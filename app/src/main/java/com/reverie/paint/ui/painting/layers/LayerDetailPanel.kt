@@ -280,6 +280,7 @@ internal fun LayerDetailPage(
                             vm.setBackgroundColor(cInt, commit = true)
                         },
                         onDismiss = { showBgColorPicker = false },
+                        vm = vm,
                     )
                 }
             }
@@ -531,6 +532,7 @@ internal fun LayerDetailPage(
                         vm.setFillLayerColor(index, argb)
                     },
                     onDismiss = { showFillColorPicker = false },
+                    vm = vm,
                 )
             }
         }
@@ -760,6 +762,7 @@ internal fun LayerDetailPage(
                             )
                         },
                         onDismiss = { showStrokeColorPicker = false },
+                        vm = vm,
                     )
                 }
 

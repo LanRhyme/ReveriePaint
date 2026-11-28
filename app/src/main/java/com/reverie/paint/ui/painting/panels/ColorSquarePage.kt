@@ -45,7 +45,10 @@ fun SquareHsbColorPage(
     onHue: (Float) -> Unit,
     onSatVal: (Float, Float) -> Unit,
     onInteractionStart: () -> Unit,
-    onInteractionEnd: () -> Unit
+    onInteractionEnd: () -> Unit,
+    currentColorHex: String = vm.brushColor,
+    compareBaselineHex: String = vm.colorCompareBaseline,
+    onDirectHexSelected: (String) -> Unit = { hex -> vm.updateBrushColor(hex) },
 ) {
     // Reusable buffers for non-HSV color models to eliminate GC churn
     val res = 80
@@ -65,8 +68,8 @@ fun SquareHsbColorPage(
         animationSpec = spring(dampingRatio = 0.72f, stiffness = 620f),
         label = "squareCompareProgress",
     )
-    val previousColor = remember(vm.colorCompareBaseline) {
-        parseColorHexOrDefault(vm.colorCompareBaseline)
+    val previousColor = remember(compareBaselineHex) {
+        parseColorHexOrDefault(compareBaselineHex)
     }
 
     Column(
@@ -279,8 +282,8 @@ fun SquareHsbColorPage(
         // 3. Bottom Quick Swatches (Recent Colors / Default Palette Switcher)
         BottomQuickSwatchesSection(
             vm = vm,
-            currentColorHex = vm.brushColor,
-            onColorSelect = { hex -> vm.updateBrushColor(hex) }
+            currentColorHex = currentColorHex,
+            onColorSelect = onDirectHexSelected
         )
     }
 }

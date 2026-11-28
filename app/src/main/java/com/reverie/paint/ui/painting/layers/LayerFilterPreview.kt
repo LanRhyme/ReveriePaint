@@ -547,6 +547,7 @@ internal fun FilterAdjustControls(
     sendCurvesPreview: () -> Unit,
     sendGradientMapPreview: () -> Unit,
     sendDiscretePreview: () -> Unit = sendPreview,
+    vm: com.reverie.paint.core.PaintViewModel? = null,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -569,7 +570,8 @@ internal fun FilterAdjustControls(
                         st.reverseGradient = !st.reverseGradient
                         sendGradientMapPreview()
                     },
-                    onGradientChanged = { sendGradientMapPreview() }
+                    onGradientChanged = { sendGradientMapPreview() },
+                    vm = vm,
                 )
             }
             else -> {

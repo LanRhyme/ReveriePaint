@@ -62,20 +62,29 @@ fun ColorShadingSpherePage(
     onColorSelected: (String) -> Unit,
     onInteractionStart: () -> Unit,
     onInteractionEnd: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    currentColorHex: String = vm.brushColor,
+    isolatedBaseHex: Boolean = false,
 ) {
     val context = LocalContext.current
 
-    // 1. Base color (💧): derived from vm.colorSphereBaseHex, completely decoupled from sphere touch-sampling
+    // 1. Base color (💧): derived from vm.colorSphereBaseHex (or local state when isolated), completely decoupled from sphere touch-sampling
     var isSamplingSphere by remember { mutableStateOf(false) }
+    var localBaseHex by remember { mutableStateOf(currentColorHex) }
 
-    LaunchedEffect(Unit) {
-        if (vm.colorSphereBaseHex.isEmpty()) {
-            vm.updateColorSphereBaseHex(vm.brushColor)
+    LaunchedEffect(isolatedBaseHex) {
+        if (!isolatedBaseHex && vm.colorSphereBaseHex.isEmpty()) {
+            vm.updateColorSphereBaseHex(currentColorHex)
         }
     }
 
-    val baseHex = if (vm.colorSphereBaseHex.isNotEmpty()) vm.colorSphereBaseHex else vm.brushColor
+    val baseHex = if (isolatedBaseHex) {
+        localBaseHex
+    } else if (vm.colorSphereBaseHex.isNotEmpty()) {
+        vm.colorSphereBaseHex
+    } else {
+        currentColorHex
+    }
 
     // 2. Custom color overrides for 🌙 and ☀️
     var shadowOverrideHex by remember { mutableStateOf<String?>(null) }
@@ -217,11 +226,19 @@ fun ColorShadingSpherePage(
                 hexColor = baseHex,
                 isOverridden = false,
                 onClick = {
-                    vm.updateColorSphereBaseHex(vm.brushColor)
+                    if (isolatedBaseHex) {
+                        localBaseHex = currentColorHex
+                    } else {
+                        vm.updateColorSphereBaseHex(currentColorHex)
+                    }
                     Toast.makeText(context, context.getString(R.string.color_sphere_base_updated), Toast.LENGTH_SHORT).show()
                 },
                 onLongClick = {
-                    vm.updateColorSphereBaseHex(vm.brushColor)
+                    if (isolatedBaseHex) {
+                        localBaseHex = currentColorHex
+                    } else {
+                        vm.updateColorSphereBaseHex(currentColorHex)
+                    }
                     Toast.makeText(context, context.getString(R.string.color_sphere_base_updated), Toast.LENGTH_SHORT).show()
                 }
             )
@@ -318,7 +335,9 @@ fun ColorShadingSpherePage(
                 }
                 editingSlot = 0
                 Toast.makeText(context, context.getString(R.string.color_sphere_reset_auto), Toast.LENGTH_SHORT).show()
-            }
+            },
+            vm = vm,
+            allowShadingSphere = false,
         )
     }
 }

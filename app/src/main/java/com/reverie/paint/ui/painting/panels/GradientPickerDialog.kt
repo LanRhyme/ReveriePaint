@@ -55,6 +55,7 @@ import androidx.compose.ui.window.Dialog
 import com.reverie.paint.R
 import com.reverie.paint.core.GradientPresetManager
 import com.reverie.paint.core.GradientState
+import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.GradientColorStop
 import com.reverie.paint.model.GradientPreset
 import com.reverie.paint.ui.components.ReTextButton
@@ -78,6 +79,7 @@ fun GradientPickerDialog(
     initialFgColor: Color,
     initialBgColor: Color,
     onDismiss: () -> Unit,
+    vm: PaintViewModel? = null,
 ) {
     val context = LocalContext.current
     val currentEffective = remember {
@@ -557,6 +559,7 @@ fun GradientPickerDialog(
                         showColorPicker = false
                     },
                     onDismiss = { showColorPicker = false },
+                    vm = vm,
                 )
             }
         }

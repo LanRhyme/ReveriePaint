@@ -574,6 +574,7 @@ internal fun FilterBottomDock(
                         sendCurvesPreview = sendCurvesPreview,
                         sendGradientMapPreview = sendGradientMapPreview,
                         sendDiscretePreview = sendDiscretePreview,
+                        vm = vm,
                     )
                 }
             }
