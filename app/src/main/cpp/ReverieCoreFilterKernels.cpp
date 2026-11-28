@@ -30,10 +30,10 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
                     quint8 *px = line + x * 4;
                     const int a = px[3];
                     if (a == 0) continue; // Skip transparent
-                    // 缓冲区是预乘 ARGB, 先还原为直通色再做 HSV 运算, 否则半透明笔画会偏暗
-                    int r = qBound(0, px[2] * 255 / a, 255);
-                    int g = qBound(0, px[1] * 255 / a, 255);
-                    int b = qBound(0, px[0] * 255 / a, 255);
+                    // 缓冲区由 readBytes 直接读入, 为非预乘直通 BGRA (p[0]=B, p[1]=G, p[2]=R, p[3]=A)
+                    int r = px[2];
+                    int g = px[1];
+                    int b = px[0];
                     QColor col(r, g, b);
                     float qh = 0.0f, qs = 0.0f, qv = 0.0f;
                     col.getHsvF(&qh, &qs, &qv);
@@ -49,9 +49,9 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
                         g = qBound(0, int((g - 128) * cScale + 128), 255);
                         b = qBound(0, int((b - 128) * cScale + 128), 255);
                     }
-                    px[2] = quint8((r * a + 127) / 255);
-                    px[1] = quint8((g * a + 127) / 255);
-                    px[0] = quint8((b * a + 127) / 255);
+                    px[2] = quint8(r);
+                    px[1] = quint8(g);
+                    px[0] = quint8(b);
                 }
             }
         });
@@ -70,9 +70,10 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
                     quint8 *px = line + x * 4;
                     const int a = px[3];
                     if (a == 0) continue;
-                    int r = qBound(0, px[2] * 255 / a, 255);
-                    int g = qBound(0, px[1] * 255 / a, 255);
-                    int b = qBound(0, px[0] * 255 / a, 255);
+                    // 缓冲区由 readBytes 直接读入, 为非预乘直通 BGRA
+                    int r = px[2];
+                    int g = px[1];
+                    int b = px[0];
                     QColor col(r, g, b);
                     float qh = 0.0f, qs = 0.0f, ql = 0.0f;
                     col.getHslF(&qh, &qs, &ql);
@@ -88,9 +89,9 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
                         g = qBound(0, int((g - 128) * cScale + 128), 255);
                         b = qBound(0, int((b - 128) * cScale + 128), 255);
                     }
-                    px[2] = quint8((r * a + 127) / 255);
-                    px[1] = quint8((g * a + 127) / 255);
-                    px[0] = quint8((b * a + 127) / 255);
+                    px[2] = quint8(r);
+                    px[1] = quint8(g);
+                    px[0] = quint8(b);
                 }
             }
         });
