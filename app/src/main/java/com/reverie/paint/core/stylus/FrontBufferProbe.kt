@@ -55,6 +55,7 @@ object FrontBufferProbe {
      * 1. Android 13 (SDK 33) 的小米/红米、vivo/iQOO、INFINIX、ZTE 与 realme 机型 (线上 d8f74afe88 / e08be7f0df / 0c9db10540 / a34378376d)。
      * 2. Android 12 (SDK 31) 的华为/荣耀鸿蒙 ROM (线上 1.9.0 b245be222a, 1.9.1 c0304d67e3 / 6401162f4a / a7b289ea37 / 127c50c4de)。
      * 3. Android 12 (SDK 31) 的 XPPen / Ugee Titan 系列绘画平板 (Titan_XPPen #232、TCL UT1 / Titan_Vis_Wifi 97a75a3d7a)。
+     * 4. Android 13 (SDK 33) 的三星 Galaxy Tab S6 Lite 2020 (SM-P610 / SM-P615 / gta4xl*, #249)。
      * 该系统缺陷在 SurfaceControl 事务与 BLASTBufferQueue 中解引用空指针或 RefBase 强弱引用断言失败导致崩溃，需前置规避。
      */
     internal fun isKnownDefectiveVendorRom(
@@ -62,16 +63,23 @@ object FrontBufferProbe {
         brand: String = Build.BRAND ?: "",
         mfg: String = Build.MANUFACTURER ?: "",
         device: String = Build.DEVICE ?: "",
+        model: String = Build.MODEL ?: "",
     ): Boolean {
         val b = brand.lowercase()
         val m = mfg.lowercase()
         val d = device.lowercase()
+        val mod = model.lowercase()
         if (sdk == 33) {
             if (b.contains("xiaomi") || b.contains("redmi") || m.contains("xiaomi") ||
                 b.contains("vivo") || b.contains("iqoo") || m.contains("vivo") ||
                 b.contains("infinix") || m.contains("infinix") ||
                 b.contains("zte") || m.contains("zte") ||
                 b.contains("realme") || m.contains("realme")
+            ) {
+                return true
+            }
+            if ((b.contains("samsung") || m.contains("samsung")) &&
+                (d.contains("gta4xl") || mod.contains("sm-p610") || mod.contains("sm-p615"))
             ) {
                 return true
             }

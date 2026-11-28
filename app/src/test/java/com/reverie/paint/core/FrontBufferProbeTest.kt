@@ -96,6 +96,8 @@ class FrontBufferProbeTest {
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "Infinix", mfg = "INFINIX"))
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "ZTE", mfg = "ZTE"))
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "realme", mfg = "realme"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "samsung", mfg = "samsung", device = "gta4xlwifi", model = "SM-P610"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "samsung", mfg = "samsung", device = "gta4xl", model = "SM-P615"))
 
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "HUAWEI", mfg = "HUAWEI"))
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "HONOR", mfg = "HONOR"))
@@ -114,6 +116,7 @@ class FrontBufferProbeTest {
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "Xiaomi", mfg = "Xiaomi"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "HUAWEI", mfg = "HUAWEI"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "Samsung", mfg = "samsung"))
+        assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 34, brand = "samsung", mfg = "samsung", device = "gta4xlwifi", model = "SM-P610"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "google", mfg = "Google"))
     }
 }
