@@ -310,7 +310,7 @@ private fun TransformNudgeButton(
             .liquidLean(iconSource, maxOffset = 3.dp)
             .clip(CircleShape)
             .background(Morandi.panelHi)
-            .liquidHighlight(iconSource, Color.White, radius = 20.dp)
+            .liquidHighlight(iconSource, Color.Unspecified, radius = 20.dp)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)

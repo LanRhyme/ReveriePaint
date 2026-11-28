@@ -188,10 +188,16 @@ fun ReIconButton(
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = size, minHeight = size)
-            .pressScale(interaction, pressedScale = 0.82f)
-            .liquidLean(interaction, maxOffset = 4.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .liquidHighlight(interaction, Color.White, radius = 20.dp)
+            .pressScale(interaction, pressedScale = 0.90f)
+            .liquidLean(interaction, maxOffset = 2.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .liquidHighlight(
+                interaction,
+                color = if (selected) colors.accent else Color.Unspecified,
+                radius = 18.dp,
+                maxAlpha = if (selected) 0.18f else 0.13f,
+                drawBehindContent = true,
+            )
             .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onTap() },
         contentAlignment = Alignment.Center,
     ) {
@@ -244,15 +250,21 @@ fun ReIconButton(
         animationSpec = tween(160),
         label = "icon_select_alpha",
     )
-    val shape = RoundedCornerShape(8.dp)
+    val shape = RoundedCornerShape(10.dp)
 
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = size, minHeight = size)
-            .pressScale(interaction, pressedScale = 0.82f)
-            .liquidLean(interaction, maxOffset = 4.dp)
+            .pressScale(interaction, pressedScale = 0.90f)
+            .liquidLean(interaction, maxOffset = 2.dp)
             .clip(shape)
-            .liquidHighlight(interaction, Color.White, radius = 20.dp)
+            .liquidHighlight(
+                interaction,
+                color = if (selected) colors.accent else Color.Unspecified,
+                radius = 18.dp,
+                maxAlpha = if (selected) 0.18f else 0.13f,
+                drawBehindContent = true,
+            )
             .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onTap() },
         contentAlignment = Alignment.Center,
     ) {
@@ -291,7 +303,7 @@ fun ReButton(
                 )
                 .alpha(if (enabled) 1f else 0.45f)
                 .clip(buttonShape)
-                .liquidHighlight(interaction, Color.White, radius = 40.dp)
+                .liquidHighlight(interaction, color = if (primary) Color.White else Color.Unspecified, radius = 40.dp)
                 .background(if (primary) colors.accent else colors.panelHi)
                 .then(if (!primary) Modifier.glassBorder(buttonShape) else Modifier)
                 .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onClick() }
@@ -1758,7 +1770,7 @@ fun ReChip(
                 .pressScale(interaction, pressedScale = 0.93f)
                 .liquidLean(interaction, maxOffset = 3.dp)
                 .clip(shape)
-                .liquidHighlight(interaction, Color.White, radius = 26.dp)
+                .liquidHighlight(interaction, color = if (selected) colors.accent else Color.Unspecified, radius = 26.dp)
                 .background(colors.panelHi)
                 .then(if (selected) Modifier.border(1.dp, colors.accent.copy(alpha = 0.55f), shape).liquidSheen(trigger = selected) else Modifier)
                 .clickable(interactionSource = interaction, indication = null) { onTap() }
@@ -1815,7 +1827,11 @@ fun ReTextButton(
                 .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
                 .pressScale(interaction, pressedScale = 0.94f)
                 .clip(shape)
-                .liquidHighlight(interaction, Color.White, radius = 30.dp)
+                .liquidHighlight(
+                    interaction,
+                    color = if (primary || containerColor != null) Color.White else Color.Unspecified,
+                    radius = 30.dp,
+                )
                 .background(bg)
                 .then(if (!primary && containerColor == null && enabled) Modifier.glassBorder(shape) else Modifier)
                 .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onClick() }
@@ -1934,7 +1950,7 @@ fun ReMenuItem(
             .pressScale(interaction, pressedScale = 0.93f)
             .liquidLean(interaction, maxOffset = 3.dp)
             .clip(RoundedCornerShape(10.dp))
-            .liquidHighlight(interaction, Color.White, radius = 30.dp)
+            .liquidHighlight(interaction, Color.Unspecified, radius = 30.dp)
             .background(cardBg)
             .clickable(interactionSource = interaction, indication = null) { onTap() }
             .padding(vertical = 10.dp, horizontal = 4.dp),

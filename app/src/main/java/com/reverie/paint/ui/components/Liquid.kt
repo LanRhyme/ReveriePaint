@@ -7,7 +7,9 @@ package com.reverie.paint.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -19,7 +21,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -29,11 +30,14 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.scale as drawScale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.node.DrawModifierNode
@@ -42,7 +46,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.reverie.paint.model.UiAnimationSpeed
 import com.reverie.paint.ui.theme.Motion
+import com.reverie.paint.ui.theme.Theme
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -121,17 +127,46 @@ fun Modifier.liquidLean(source: MutableInteractionSource, maxOffset: Dp = 8.dp):
             .offset { IntOffset(offsetX.value.roundToInt(), offsetY.value.roundToInt()) }
     }
 
-/** 高光跟随：按压时在触点画径向高光，指尖移动时高光实时跟随，松手淡出。 */
+private fun liquidPressSpec(): AnimationSpec<Float> = when (Motion.currentSpeed) {
+    UiAnimationSpeed.NORMAL -> tween(durationMillis = 110, easing = FastOutSlowInEasing)
+    UiAnimationSpeed.FAST -> tween(durationMillis = 55, easing = FastOutSlowInEasing)
+    UiAnimationSpeed.OFF -> snap()
+}
+
+private fun liquidReleaseSpec(): AnimationSpec<Float> = when (Motion.currentSpeed) {
+    UiAnimationSpeed.NORMAL -> tween(durationMillis = 220, easing = FastOutSlowInEasing)
+    UiAnimationSpeed.FAST -> tween(durationMillis = 90, easing = FastOutSlowInEasing)
+    UiAnimationSpeed.OFF -> snap()
+}
+
+private class HighlightBrushCache {
+    var brush: Brush? = null
+    var center: Offset = Offset.Unspecified
+    var radius: Float = -1f
+    var color: Color = Color.Unspecified
+    var peakAlpha: Float = -1f
+}
+
+/** 高光跟随：按压时在触点画柔和径向高光，指尖移动时高光实时跟随，松手平滑淡出。 */
 fun Modifier.liquidHighlight(
     source: MutableInteractionSource,
-    color: Color,
+    color: Color = Color.Unspecified,
     radius: Dp = 56.dp,
+    maxAlpha: Float = 0.13f,
+    drawBehindContent: Boolean = false,
 ): Modifier = composed {
     val density = LocalDensity.current
     val rPx = with(density) { radius.toPx() }
+    val smallThresholdPx = with(density) { 48.dp.toPx() }
+    val colors = Theme.current
+    val isDark = colors.panel.luminance() <= 0.5f
+    val effectiveColor = if (color != Color.Unspecified) color else if (isDark) Color.White else colors.text
+    val peakAlpha = if (color != Color.Unspecified) maxAlpha else if (isDark) maxAlpha else maxAlpha * 0.65f
+
     var size by remember { mutableStateOf(IntSize.Zero) }
     var center by remember { mutableStateOf(Offset.Zero) }
-    val alpha = remember { Animatable(0f) }
+    val progress = remember { Animatable(0f) }
+    val brushCache = remember { HighlightBrushCache() }
 
     // 按压状态驱动高光淡入淡出（与 clickable 共用同一 interactionSource）
     LaunchedEffect(source) {
@@ -142,10 +177,10 @@ fun Modifier.liquidHighlight(
                         interaction.pressPosition.x.coerceIn(0f, size.width.toFloat()),
                         interaction.pressPosition.y.coerceIn(0f, size.height.toFloat()),
                     )
-                    alpha.animateTo(0.24f, Motion.springSnap)
+                    progress.animateTo(1f, liquidPressSpec())
                 }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
-                    alpha.animateTo(0f, Motion.springSoft)
+                    progress.animateTo(0f, liquidReleaseSpec())
                 }
             }
         }
@@ -170,17 +205,63 @@ fun Modifier.liquidHighlight(
     this
         .onSizeChanged { size = it }
         .drawWithContent {
-            drawContent()
-            if (alpha.value > 0.01f && center != Offset.Zero) {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(color.copy(alpha = alpha.value), Color.Transparent),
-                        center = center,
-                        radius = rPx,
-                    ),
-                    radius = rPx,
-                    center = center,
-                )
+            val p = progress.value
+            val drawGlow: ContentDrawScope.() -> Unit = {
+                if (p > 0.01f && center != Offset.Zero && this.size.width > 0f && this.size.height > 0f) {
+                    val maxDim = max(this.size.width, this.size.height)
+                    val minDim = min(this.size.width, this.size.height)
+                    val effectiveCenter = if (minDim <= smallThresholdPx) {
+                        val cx = this.size.width * 0.5f
+                        val cy = this.size.height * 0.5f
+                        Offset(cx + (center.x - cx) * 0.25f, cy + (center.y - cy) * 0.25f)
+                    } else {
+                        center
+                    }
+                    val effectiveRadius = if (minDim <= smallThresholdPx) {
+                        min(rPx, maxDim * (if (drawBehindContent) 0.56f else 0.72f)).coerceAtLeast(1f)
+                    } else {
+                        rPx.coerceAtLeast(1f)
+                    }
+                    val brush = if (
+                        brushCache.brush != null &&
+                        brushCache.center == effectiveCenter &&
+                        brushCache.radius == effectiveRadius &&
+                        brushCache.color == effectiveColor &&
+                        brushCache.peakAlpha == peakAlpha
+                    ) {
+                        brushCache.brush!!
+                    } else {
+                        Brush.radialGradient(
+                            0.0f to effectiveColor.copy(alpha = peakAlpha),
+                            0.35f to effectiveColor.copy(alpha = peakAlpha * 0.50f),
+                            0.70f to effectiveColor.copy(alpha = peakAlpha * 0.14f),
+                            1.0f to Color.Transparent,
+                            center = effectiveCenter,
+                            radius = effectiveRadius,
+                        ).also {
+                            brushCache.brush = it
+                            brushCache.center = effectiveCenter
+                            brushCache.radius = effectiveRadius
+                            brushCache.color = effectiveColor
+                            brushCache.peakAlpha = peakAlpha
+                        }
+                    }
+                    drawScale(scale = 0.84f + 0.16f * p, pivot = effectiveCenter) {
+                        drawCircle(
+                            brush = brush,
+                            alpha = p,
+                            radius = effectiveRadius,
+                            center = effectiveCenter,
+                        )
+                    }
+                }
+            }
+            if (drawBehindContent) {
+                drawGlow()
+                drawContent()
+            } else {
+                drawContent()
+                drawGlow()
             }
         }
 }
@@ -319,9 +400,6 @@ object LiquidIndication : IndicationNodeFactory {
     /** 光斑基准半径上限 */
     private const val BASE_RADIUS_DP = 140f
 
-    /** 基准峰值透明度 */
-    private const val BASE_ALPHA = 0.16f
-
     override fun create(interactionSource: InteractionSource): Modifier.Node =
         LiquidIndicationNode(interactionSource)
 
@@ -337,9 +415,11 @@ object LiquidIndication : IndicationNodeFactory {
         private var animJob: Job? = null
         private var center: Offset = Offset.Zero
 
-        // Brush 缓存：仅在按压开始 / 尺寸变化时重建一次
+        // Brush 缓存：仅在按压开始 / 尺寸或主题变化时重建一次
         private var cachedBrush: Brush? = null
-        private var brushKey: Any? = null
+        private var cachedSize: Size = Size.Unspecified
+        private var cachedIsDark: Boolean = true
+        private var cachedCenter: Offset = Offset.Unspecified
         private var builtRadius: Float = 0f
 
         fun animateTo(target: Float, spec: AnimationSpec<Float>) {
@@ -353,11 +433,11 @@ object LiquidIndication : IndicationNodeFactory {
                     when (interaction) {
                         is PressInteraction.Press -> {
                             center = interaction.pressPosition
-                            brushKey = null // 新触点 → 下一帧重建 Brush
-                            animateTo(1f, tween(durationMillis = 90))
+                            cachedBrush = null // 新触点 → 下一帧重建 Brush
+                            animateTo(1f, liquidPressSpec())
                         }
                         is PressInteraction.Release, is PressInteraction.Cancel -> {
-                            animateTo(0f, tween(durationMillis = 240))
+                            animateTo(0f, liquidReleaseSpec())
                         }
                     }
                 }
@@ -370,35 +450,60 @@ object LiquidIndication : IndicationNodeFactory {
             if (p <= 0.01f || size.width <= 0f || size.height <= 0f) return
             if (center == Offset.Zero) return
 
+            val colors = Theme.current
+            val isDark = colors.panel.luminance() <= 0.5f
+            val baseColor = if (isDark) Color.White else colors.text
+            val basePeakAlpha = if (isDark) 0.105f else 0.07f
+
             val maxDim = max(size.width, size.height)
-            if (brushKey != size) {
+            val minDim = min(size.width, size.height)
+            val smallThresholdPx = with(density) { 48.dp.toPx() }
+            val effectiveCenter = if (minDim <= smallThresholdPx) {
+                val cx = size.width * 0.5f
+                val cy = size.height * 0.5f
+                Offset(cx + (center.x - cx) * 0.25f, cy + (center.y - cy) * 0.25f)
+            } else {
+                center
+            }
+
+            if (
+                cachedBrush == null ||
+                cachedSize != size ||
+                cachedIsDark != isDark ||
+                cachedCenter != effectiveCenter
+            ) {
                 val baseRadiusPx = with(density) { BASE_RADIUS_DP.dp.toPx() }
                 // 小组件：半径贴合自身；大表面：限制在触点附近
-                builtRadius = min(baseRadiusPx, maxDim * 0.75f)
-                    .coerceAtLeast(with(density) { 40.dp.toPx() })
+                builtRadius = min(baseRadiusPx, maxDim * 0.65f)
+                    .coerceAtLeast(min(maxDim * 0.52f, with(density) { 24.dp.toPx() }))
+                    .coerceAtLeast(1f)
                 // 大面积表面（scrim 等）按尺寸衰减亮度，避免整屏白闪
                 val alphaScale = if (maxDim > builtRadius * 3f) 0.45f else 1f
+                val peakAlpha = basePeakAlpha * alphaScale
                 cachedBrush = Brush.radialGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = BASE_ALPHA * alphaScale),
-                        Color.White.copy(alpha = BASE_ALPHA * alphaScale * 0.5f),
-                        Color.Transparent,
-                    ),
-                    center = center,
+                    0.0f to baseColor.copy(alpha = peakAlpha),
+                    0.35f to baseColor.copy(alpha = peakAlpha * 0.50f),
+                    0.70f to baseColor.copy(alpha = peakAlpha * 0.14f),
+                    1.0f to Color.Transparent,
+                    center = effectiveCenter,
                     radius = builtRadius,
                 )
-                brushKey = size
+                cachedSize = size
+                cachedIsDark = isDark
+                cachedCenter = effectiveCenter
             }
             val brush = cachedBrush ?: return
 
             // 裁剪到组件边界，防止光斑溢出到相邻元素
             clipRect(right = size.width, bottom = size.height) {
-                drawCircle(
-                    brush = brush,
-                    alpha = p,
-                    center = center,
-                    radius = builtRadius,
-                )
+                drawScale(scale = 0.84f + 0.16f * p, pivot = effectiveCenter) {
+                    drawCircle(
+                        brush = brush,
+                        alpha = p,
+                        center = effectiveCenter,
+                        radius = builtRadius,
+                    )
+                }
             }
         }
     }

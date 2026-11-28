@@ -360,10 +360,16 @@ fun ToolButtonsContent(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(32.dp)
-                        .pressScale(moreSource, pressedScale = 0.92f)
-                        .liquidLean(moreSource, maxOffset = 4.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .liquidHighlight(moreSource, Color.White, radius = 22.dp)
+                        .pressScale(moreSource, pressedScale = 0.90f)
+                        .liquidLean(moreSource, maxOffset = 2.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .liquidHighlight(
+                            moreSource,
+                            color = if (isMoreToolsActive) Morandi.accent else Color.Unspecified,
+                            radius = 18.dp,
+                            maxAlpha = if (isMoreToolsActive) 0.18f else 0.13f,
+                            drawBehindContent = true,
+                        )
                         .clickable(interactionSource = moreSource, indication = null) { onToggleMoreTools() },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -481,10 +487,16 @@ fun ToolButtonsContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(32.dp)
-                        .pressScale(moreSource, pressedScale = 0.92f)
-                        .liquidLean(moreSource, maxOffset = 4.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .liquidHighlight(moreSource, Color.White, radius = 22.dp)
+                        .pressScale(moreSource, pressedScale = 0.90f)
+                        .liquidLean(moreSource, maxOffset = 2.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .liquidHighlight(
+                            moreSource,
+                            color = if (isMoreToolsActive) Morandi.accent else Color.Unspecified,
+                            radius = 18.dp,
+                            maxAlpha = if (isMoreToolsActive) 0.18f else 0.13f,
+                            drawBehindContent = true,
+                        )
                         .clickable(interactionSource = moreSource, indication = null) { onToggleMoreTools() },
                     contentAlignment = Alignment.Center,
                 ) {

@@ -345,7 +345,7 @@ private fun AllToolCell(
                         if (isSelected) Modifier.border(0.8.dp, Morandi.accent.copy(alpha = 0.55f), RoundedCornerShape(7.dp))
                         else Modifier
                     )
-                    .liquidHighlight(cellSource, Color.White, radius = 24.dp)
+                    .liquidHighlight(cellSource, if (isSelected) Morandi.accent else Color.Unspecified, radius = 24.dp)
                     .clickable(interactionSource = cellSource, indication = null) {
                         if (t == tool && t.group == ToolGroup.BRUSH) {
                             vm.updateBrushPanelCategory(
@@ -401,7 +401,7 @@ private fun AllToolCell(
                         if (isSelected) Modifier.border(0.8.dp, Morandi.accent.copy(alpha = 0.55f), RoundedCornerShape(7.dp))
                         else Modifier
                     )
-                    .liquidHighlight(cellSource, Color.White, radius = 24.dp)
+                    .liquidHighlight(cellSource, if (isSelected) Morandi.accent else Color.Unspecified, radius = 24.dp)
                     .clickable(interactionSource = cellSource, indication = null) {
                         vm.toggleDrawingGuideLines()
                     }

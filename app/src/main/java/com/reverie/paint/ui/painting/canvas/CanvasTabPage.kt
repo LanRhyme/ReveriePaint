@@ -612,7 +612,7 @@ private fun CanvasActionTile(
         modifier = modifier
             .pressScale(interaction, pressedScale = 0.94f)
             .clip(shape)
-            .liquidHighlight(interaction, Color.White, radius = 24.dp)
+            .liquidHighlight(interaction, Color.Unspecified, radius = 24.dp)
             .background(
                 if (active) Morandi.accent.copy(alpha = 0.16f)
                 else Morandi.panelHi.copy(alpha = 0.55f),
